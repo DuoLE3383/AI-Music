@@ -5,3 +5,4 @@ mido
 setuptools
 numpy
 pretty_midi
+sqlalchemy

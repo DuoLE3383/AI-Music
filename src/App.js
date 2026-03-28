@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
 import * as mm from '@magenta/music';
 import PianoRoll from './PianoRoll';
 import MusicFunctions from './MusicGlossary';
+import TransportBar from './TransportBar';
+import { generateMusic, remixMusic } from './services/api';
+import './App.css';
 
 const App = () => {
   const [file, setFile] = useState(null);
@@ -17,6 +19,7 @@ const App = () => {
   const [remixSequence, setRemixSequence] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [checkpoints, setCheckpoints] = useState([]);
 
   // States to track categorical parameters for the AI backend
   const [style, setStyle] = useState('pop');
@@ -27,27 +30,26 @@ const App = () => {
   const [isReversed, setIsReversed] = useState(false);
   const [isHumanized, setIsHumanized] = useState(false);
   const [mode, setMode] = useState('major');
+  const [root, setRoot] = useState('C');
+  const [role, setRole] = useState('');
+  const [chords, setChords] = useState(['C']);
+  const [theoryTerm, setTheoryTerm] = useState('');
+  const [prodTerm, setProdTerm] = useState('');
+  const [phrase, setPhrase] = useState('');
 
   const abortControllerRef = useRef(null);
   const playerRef = useRef(null);
+  const midiMeRef = useRef(null);
+  const mvaeRef = useRef(null);
   const animationFrameRef = useRef(null);
-
-  // Functions to create piano roll data (NoteSequences) programmatically
-  const SequenceUtils = {
-    /**
-     * Creates a NoteSequence from raw note data.
-     * @param {Array} notes - List of { pitch, start, end }
-     */
-    create: (notes) => ({
-      notes: notes.map(n => ({ pitch: n.pitch, startTime: n.start, endTime: n.end, velocity: n.velocity || 80 })),
-      totalTime: notes.length > 0 ? Math.max(...notes.map(n => n.end)) : 0,
-      tempos: [{ qpm: bpm }]
-    })
-  };
 
   useEffect(() => {
     // Use SoundFontPlayer for high-quality instrument sounds
     playerRef.current = new mm.SoundFontPlayer('https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus');
+    // Initialize MidiMe for personalized AI training
+    midiMeRef.current = new mm.MidiMe({ latent_size: 4, epochs: 20 });
+    // Load MusicVAE to act as the "encoder" for our training data
+    mvaeRef.current = new mm.MusicVAE('https://storage.googleapis.com/magentadata/js/checkpoints/music_vae/mel_2bar_small');
     return () => {
       if (playerRef.current) playerRef.current.stop();
       if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -60,7 +62,7 @@ const App = () => {
       handleGenerate();
     }
     // Added missing dependencies to make the rack controls real-time
-  }, [style, mode, timeSig, bpm, complexity, structure]);
+  }, [style, mode, root, timeSig, bpm, complexity, structure, instrumentName, instrument]);
 
   const stopPlayer = () => {
     if (playerRef.current?.isPlaying()) playerRef.current.stop();
@@ -73,15 +75,19 @@ const App = () => {
     if (isPlaying) {
       stopPlayer();
     } else if (remixSequence) {
-      playerRef.current.resumeContext(); // Call on the instance, not the class
+      playerRef.current.resumeContext();
       setIsPlaying(true);
-      
+
       const offset = currentTime;
       const startTimestamp = Date.now();
       const updateProgress = () => {
         if (playerRef.current?.isPlaying()) {
-          setCurrentTime(offset + (Date.now() - startTimestamp) / 1000);
+          const elapsed = (Date.now() - startTimestamp) / 1000;
+          const nextTime = offset + elapsed;
+          setCurrentTime(nextTime);
+          if (nextTime < remixSequence.totalTime) {
           animationFrameRef.current = requestAnimationFrame(updateProgress);
+          }
         }
       };
 
@@ -102,13 +108,14 @@ const App = () => {
     const formData = new FormData(); formData.append('file', file);
 
     try {
-      const res = await axios.post(`http://localhost:8000/api/remix?temperature=${temp}&length=${length}&instrument=${instrument}&bpm=${bpm}`, formData, {
-        responseType: 'blob', signal: abortControllerRef.current.signal,
-        onUploadProgress: (e) => setUploadProgress(Math.round((e.loaded * 100) / e.total))
-      });
+      const params = { temperature: temp, length, instrument, bpm };
+      const res = await remixMusic(formData, params, 
+        (e) => setUploadProgress(Math.round((e.loaded * 100) / e.total)),
+        abortControllerRef.current.signal
+      );
       const ns = await mm.blobToNoteSequence(res.data);
       setRemixSequence(ns); setStatus('Remix complete!');
-    } catch (e) { setStatus(axios.isCancel(e) ? 'Cancelled' : 'Failed'); }
+    } catch (e) { setStatus(e.name === 'AbortError' ? 'Cancelled' : 'Failed'); }
     finally { setLoading(false); abortControllerRef.current = null; }
   };
 
@@ -116,12 +123,13 @@ const App = () => {
     setLoading(true); setStatus('Generating...'); setUploadProgress(0); stopPlayer();
     abortControllerRef.current = new AbortController();
     try {
-      const res = await axios.post(`http://localhost:8000/api/generate`, {
+      const payload = {
         style,
         instrument: instrumentName,
         instrument_id: instrument,
         structure,
         complexity,
+        chords,
         transpose: transposeVal,
         reverse: isReversed,
         humanize: isHumanized,
@@ -129,14 +137,14 @@ const App = () => {
         length: length,
         bpm: bpm,
         mode: mode,
+        root: root,
         time_signature: timeSig
-      }, {
-        responseType: 'blob', 
-        signal: abortControllerRef.current.signal,
-        onDownloadProgress: (e) => {
-          if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total));
-        }
-      });
+      };
+
+      const res = await generateMusic(payload, 
+        (e) => { if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total)); },
+        abortControllerRef.current.signal
+      );
 
       // If the backend returns an error message (JSON) instead of a MIDI file, 
       // we must extract the error text from the blob.
@@ -148,16 +156,71 @@ const App = () => {
 
       const ns = await mm.blobToNoteSequence(res.data);
       setRemixSequence(ns); setStatus('Generation complete!');
-    } catch (e) { 
-      if (axios.isCancel(e)) {
+      setCheckpoints(prev => [{
+        id: Date.now(),
+        type: `AI ${style.toUpperCase()}`,
+        sequence: ns,
+        timestamp: new Date().toLocaleTimeString()
+      }, ...prev].slice(0, 10));
+    } catch (e) {
+      if (e.name === 'AbortError') {
         setStatus('Cancelled');
       } else {
+        let errorMsg = e.message;
+        // Extract error details from Blob if backend returned an error JSON
+        if (e.response && e.response.data instanceof Blob) {
+          const text = await e.response.data.text();
+          try {
+            const json = JSON.parse(text);
+            errorMsg = json.detail || json.error || errorMsg;
+          } catch (pErr) { errorMsg = text || errorMsg; }
+        }
         console.error('Generation Error:', e);
-        setStatus(`Error: ${e.message || 'Failed'}`);
-        alert(e.message || "The AI model failed to generate a melody. Check if the backend is running.");
+        setStatus(`Error: ${errorMsg}`);
+        alert(`AI Generation Failed: ${errorMsg}`);
       }
     }
     finally { setLoading(false); abortControllerRef.current = null; }
+  };
+
+  // Auto-train the Personal AI whenever the sequence changes
+  useEffect(() => {
+    if (remixSequence && remixSequence.notes.length >= 4 && !loading) {
+      handleTrainAI();
+    }
+  }, [remixSequence]);
+
+  const handleTrainAI = async () => {
+    if (!remixSequence || remixSequence.notes.length < 4) {
+      return;
+    }
+
+    setLoading(true);
+    setStatus('Training Personal AI...');
+
+    try {
+      const midiMe = midiMeRef.current;
+      const mvae = mvaeRef.current;
+
+      if (!midiMe.initialized) await midiMe.initialize();
+      if (!mvae.initialized) await mvae.initialize();
+
+      // Prepare the sequence: Quantize to 2-bar chunks (required by mel_2bar_small)
+      const quantized = mm.sequences.quantizeNoteSequence(remixSequence, 4);
+      quantized.notes = quantized.notes.filter(n => n.startTime < 32); // Limit to first 2 bars for training stability
+
+
+      // Encode sequence into latents using MusicVAE
+      const z = await mvae.encode([quantized]);
+
+      // Train MidiMe on these specific latents to capture your personal style
+      await midiMe.train(z);
+      z.dispose();
+      setStatus('Personal AI Checkpoint Updated!');
+    } catch (e) {
+      console.error(e);
+      setStatus('Training Failed');
+    } finally { setLoading(false); }
   };
 
   const handleGlossarySelect = (term, category) => {
@@ -168,6 +231,9 @@ const App = () => {
       else if (term === "Stop" && isPlaying) stopPlayer();
       else if (term === "Add CDEFGAB") handleAddCDEFGABSequence();
       else if (term === "Download") handleDownload();
+    } else if (category === "Checkpoints") {
+      const cp = checkpoints.find(c => c.id.toString() === term);
+      if (cp) { setRemixSequence(cp.sequence); setStatus(`Loaded ${cp.type}`); }
     } else if (category === "Instruments") {
       const name = term.toLowerCase();
       // Map to numeric ID for local playback/UI
@@ -189,6 +255,12 @@ const App = () => {
     } else if (category === "Scale" || term === "Major" || term === "Minor") {
       setMode(term.toLowerCase());
       setStatus(`Scale set to ${term}`);
+    } else if (category === "Root Note") {
+      setRoot(term);
+      setStatus(`Key set to ${term} ${mode}`);
+    } else if (category === "Chords") {
+      setChords(term.split('-'));
+      setStatus(`Progression: ${term}`);
     } else if (category === "Melodic Transform") {
       if (!remixSequence) {
         setStatus('Generate a sequence first');
@@ -197,15 +269,15 @@ const App = () => {
 
       setRemixSequence(prev => {
         const newSequence = JSON.parse(JSON.stringify(prev)); // Deep copy to trigger re-render
-        
+
         if (term === "Transpose +") {
           setTransposeVal(v => v + 1);
           newSequence.notes = prev.notes.map(n => ({ ...n, pitch: Math.min(127, n.pitch + 1) }));
-        } 
+        }
         else if (term === "Transpose -") {
           setTransposeVal(v => v - 1);
           newSequence.notes = prev.notes.map(n => ({ ...n, pitch: Math.max(0, n.pitch - 1) }));
-        } 
+        }
         else if (term === "Reverse") {
           setIsReversed(!isReversed);
           const total = prev.totalTime;
@@ -214,7 +286,7 @@ const App = () => {
             startTime: total - n.endTime,
             endTime: total - n.startTime
           })).sort((a, b) => a.startTime - b.startTime);
-        } 
+        }
         else if (term === "Humanize") {
           setIsHumanized(!isHumanized);
           newSequence.notes = prev.notes.map(n => {
@@ -229,7 +301,28 @@ const App = () => {
             };
           });
         }
-        
+        else if (term === "Sprinkle") {
+          const repeats = 2;
+          const spacing = 60 / bpm / 4; // 16th note spacing based on current BPM
+          const velDecay = 0.9;
+          const sprinkledNotes = [];
+
+          prev.notes.forEach(n => {
+            sprinkledNotes.push(n);
+            for (let i = 1; i <= repeats; i++) {
+              sprinkledNotes.push({
+                ...n,
+                startTime: n.startTime + (i * spacing),
+                endTime: n.endTime + (i * spacing),
+                velocity: Math.floor(n.velocity * Math.pow(velDecay, i))
+              });
+            }
+          });
+
+          newSequence.notes = sprinkledNotes.sort((a, b) => a.startTime - b.startTime);
+          newSequence.totalTime = Math.max(...sprinkledNotes.map(n => n.endTime));
+        }
+
         return newSequence;
       });
 
@@ -237,20 +330,32 @@ const App = () => {
     } else if (category === "AI Complexity") {
       setComplexity(term.toLowerCase());
       setStatus(`AI Complexity set to ${term}`);
+    } else if (category === "Roles") {
+      setRole(term.toLowerCase());
+      setStatus(`Role set to ${term}`);
+    } else if (category === "Basic") {
+      setTheoryTerm(term.toLowerCase());
+      setStatus(`Theory term: ${term}`);
+    } else if (category === "Production") {
+      setProdTerm(term.toLowerCase());
+      setStatus(`Production setting: ${term}`);
+    } else if (category === "Phrases") {
+      setPhrase(term.toLowerCase());
+      setStatus(`Concept: ${term}`);
     }
   };
 
   const updateInstrument = (val) => {
     const id = parseInt(val);
     setInstrument(id);
-    const idMap = { 
-      0: 'piano', 
-      24: 'guitar', 
-      40: 'violin', 
-      56: 'trumpet', 
-      80: 'keyboard', 
-      118: 'drums', 
-      128: 'drums' 
+    const idMap = {
+      0: 'piano',
+      24: 'guitar',
+      40: 'violin',
+      56: 'trumpet',
+      80: 'keyboard',
+      118: 'drums',
+      128: 'drums'
     };
     if (idMap[id]) setInstrumentName(idMap[id]);
 
@@ -258,10 +363,10 @@ const App = () => {
     if (remixSequence) {
       setRemixSequence(prev => ({
         ...prev,
-        notes: prev.notes.map(n => ({ 
-          ...n, 
-          program: id, 
-          isDrum: id === 118 || id === 128 
+        notes: prev.notes.map(n => ({
+          ...n,
+          program: id,
+          isDrum: id === 118 || id === 128
         }))
       }));
     }
@@ -331,7 +436,7 @@ const App = () => {
       const blob = new Blob([midiBytes], { type: 'audio/midi' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; 
+      a.href = url;
       a.download = file ? `remix_${file.name}` : 'generated.mid';
       a.click();
       setTimeout(() => window.URL.revokeObjectURL(url), 100);
@@ -342,19 +447,27 @@ const App = () => {
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={styles.logo}>AI MIDI <span style={{color: '#6366f1'}}>STUDIO</span></div>
-        <div style={styles.statusBadge}>{status || 'Ready'}</div>
-      </div>
+    <div className="app-container">
+      <header className="app-header">
+        <div className="logo-section">
+          <div className="logo">REASONABLE<span>R</span></div>
+          <div className="status-badge">{status || 'System Ready'}</div>
+        </div>
+        <TransportBar 
+          isPlaying={isPlaying} togglePlay={togglePlay} 
+          bpm={bpm} setBpm={setBpm} timeSig={timeSig} 
+          handleDownload={handleDownload} 
+        />
+      </header>
 
-      <div style={styles.mainLayout}>
-        <div style={styles.leftColumn}>
-          <MusicFunctions 
-            onSelect={handleGlossarySelect} 
+      <div className="main-layout">
+        <aside className="sidebar">
+          <MusicFunctions
+            onSelect={handleGlossarySelect}
             activeValues={{
-              style, instrumentName, structure, complexity, 
-              transposeVal, isReversed, isHumanized, mode, timeSig 
+              style, instrumentName, structure, complexity, role,
+              theoryTerm, prodTerm, phrase,
+              transposeVal, isReversed, isHumanized, mode, root, timeSig
             }}
             sequence={remixSequence}
             temp={temp} setTemp={setTemp}
@@ -365,96 +478,59 @@ const App = () => {
             setFile={setFile}
             handleUpload={handleUpload}
             handleGenerate={handleGenerate}
+            handleTrain={handleTrainAI}
+            checkpoints={checkpoints}
             loading={loading}
-            uploadProgress={uploadProgress}
-          />
-        </div>
+            uploadProgress={uploadProgress} />
+        </aside>
 
-        <div style={styles.rightColumn}>
+        <main className="workspace">
           {remixSequence ? (
-            <div style={styles.visualizerCard}>
-              <div style={styles.rightHeader}>
-                <div style={styles.dawTab}>Piano Roll - Pattern 1</div>
-                <div style={{display: 'flex', gap: '8px'}}>
-                  <button 
-                    onClick={togglePlay} 
-                    style={{
-                      ...styles.controlBtn, 
-                      color: isPlaying ? '#ef4444' : '#10b981',
-                      backgroundColor: isPlaying ? 'rgba(239, 68, 68, 0.1)' : 'transparent'
-                    }}>
-                    {isPlaying ? 'Stop' : 'Play'}
-                  </button>
-                  <button onClick={handleDownload} style={{...styles.controlBtn, color: '#e67e22'}}>Download</button>
+            <div className="editor-card">
+              <div className="editor-header">
+                <div className="daw-tab">Editor / <span style={{color: '#64748b'}}>Pattern_01</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="transport-label">Voice</span>
+                  <select value={instrument} onChange={(e) => updateInstrument(e.target.value)} className="select-small">
+                    <option value="0">Grand Piano</option>
+                    <option value="24">Nylon Gtr</option>
+                    <option value="32">Ac. Bass</option>
+                    <option value="40">Violin</option>
+                    <option value="128">Drum Kit</option>
+                  </select>
                 </div>
               </div>
-
-              <div style={styles.pianoRollWrapper}>
-                <PianoRoll 
-                  sequence={{...remixSequence, tempos: [{ qpm: bpm }]}} 
-                  currentTime={currentTime} 
+              
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <PianoRoll
+                  sequence={{ ...remixSequence, tempos: [{ qpm: bpm }] }}
+                  currentTime={currentTime}
                   onSeek={handleSeek}
                   onAddNote={handleNoteAdd}
-                  onRemoveNote={handleNoteRemove}
-                />
+                  onRemoveNote={handleNoteRemove} />
               </div>
 
-              <div style={styles.subSection}>
-                <div style={styles.label}>Waveform Pattern</div>
-                <div style={styles.waveformPlaceholder}>Waveform rendering engine ready...</div>
-              </div>
-
-              <div style={styles.subSection}>
-                <div style={styles.label}>AI Generation Insights</div>
-                <div style={styles.insightsGrid}>
-                  <div style={styles.insightItem}>
-                    <div style={styles.insightLabel}>Style</div>
-                    <div style={styles.insightValue}>{style}</div>
-                  </div>
-                  <div style={styles.insightItem}>
-                    <div style={styles.insightLabel}>Complexity</div>
-                    <div style={styles.insightValue}>{complexity}</div>
-                  </div>
-                  <div style={styles.insightItem}>
-                    <div style={styles.insightLabel}>Structure</div>
-                    <div style={styles.insightValue}>{structure}</div>
-                  </div>
+              <div className="insights-row">
+                <div className="insight-item">
+                  <div className="insight-label">AI Personality</div>
+                  <div className="insight-value">{style} / {complexity}</div>
+                </div>
+                <div className="insight-item">
+                  <div className="insight-label">Context</div>
+                  <div className="insight-value">{structure}</div>
                 </div>
               </div>
             </div>
           ) : (
-            <div style={styles.emptyStateCard}>
-              <h2 style={styles.visualizerTitle}>Output Preview</h2>
-              <p style={{color: '#64748b', fontSize: '14px'}}>Waiting for generation or remix...</p>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px dashed #27272a', borderRadius: '12px' }}>
+              <h2 style={{ color: '#334155', fontSize: '24px', fontWeight: '900', textTransform: 'uppercase' }}>No Data</h2>
+              <p style={{ color: '#64748b', fontSize: '14px' }}>Waiting for generation or remix...</p>
             </div>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );
 };
 
-const styles = {
-  container: { display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '100vh', width: '100%', boxSizing: 'border-box', fontFamily: "'Segoe UI', Tahoma, sans-serif", background: '#191c21', color: '#bdc3c7', overflowY: 'auto', padding: '0 20px 40px 20px' },
-  header: { width: '100%', maxWidth: '1600px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 0', borderBottom: '2px solid #2c313a', marginBottom: '30px' },
-  logo: { fontSize: '20px', fontWeight: '900', letterSpacing: '2px', color: '#e67e22' },
-  statusBadge: { fontSize: '10px', padding: '6px 12px', backgroundColor: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '20px', color: '#818cf8', fontWeight: '700', textTransform: 'uppercase' },
-  mainLayout: { display: 'flex', flexDirection: 'row', gap: '40px', alignItems: 'flex-start', width: '100%', maxWidth: '1600px', flexWrap: 'wrap' },
-  leftColumn: { display: 'flex', flexDirection: 'column', gap: '20px', flex: '1 1 380px', minWidth: '320px', maxWidth: '450px' },
-  rightColumn: { flex: '2 1 600px', width: '100%', minWidth: '320px' },
-  controlCard: { backgroundColor: '#24282e', padding: '24px', borderRadius: '4px', border: '1px solid #3e444e', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' },
-  visualizerCard: { backgroundColor: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  rightHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  dawTab: { fontSize: '9px', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '1.5px' },
-  pianoRollWrapper: { background: 'transparent' },
-  section: { marginBottom: '24px' },
-  row: { display: 'flex', gap: '20px', marginBottom: '24px' },
-  label: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#94a3b8', display: 'block', marginBottom: '8px', fontWeight: '700' },
-  fileInput: { width: '100%', padding: '12px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' },
-  select: { width: '100%', padding: '12px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '12px', outline: 'none' },
-  controlBtn: { padding: '6px 16px', backgroundColor: 'transparent', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer', fontWeight: '900', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', color: '#94a3b8' },
-  progressBg: { width: '100%', height: '6px', backgroundColor: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginTop: '12px' },
-  rangeDAW: { width: '100%', accentColor: '#6366f1', cursor: 'pointer' },
-  subSection: { padding: '20px' },
-};
 export default App;

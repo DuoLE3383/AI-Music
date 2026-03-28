@@ -1,0 +1,94 @@
+Overview
+--------
+Piano roll scripts are written in Python.
+
+The piano roll definitions are contained in the "flpianoroll" package. 
+
+Example script:
+
+from flpianoroll import *
+
+# loop through existing notes and set the "muted" flag
+for i in range(score.noteCount) :
+  score.getNote(i).muted = True
+
+To support the "preview" then the scripts need to define two functions: createDialog and apply.
+
+Example of script using the "preview" feature:
+
+from flpianoroll import *
+
+def createDialog() :
+  # create a form and return it
+  form = ScriptDialog('Add One Note','')
+  form.AddInputKnob('Note Number',36,24,48)
+  return form
+
+def apply(form) :
+  # read parameters from the form
+  notenr=round(form.GetInputValue('Note Number')))
+  # ... do something here
+
+
+API-reference
+-------------
+def Note
+  number    # note number (midi standard)
+  time      # ticks
+  length    # ticks
+  group     # group number this note belongs to
+  pan       # 0.0 - 1.0, default 0.5
+  velocity  # 0.0 - 1.0, default 0.8
+  release   # 0.0 - 1.0
+  color     # 0 - 15, default 0. Color group / MIDI channel.
+  fcut      # 0.0 - 1.0, default 0.5
+  fres      # 0.0 - 1.0, default 0.5
+  pitchofs  # -120 to 120
+  slide     # True/False
+  porta     # True/False
+  muted     # True/False
+  selected  # True/False
+
+def Marker
+  time      # ticks
+  name
+  mode      # integer
+  tsnum     # when marker is a time signature
+  tsden     # when marker is a time signature
+
+def Score
+  PPQ              # ticks per quarter note (read-only)
+  tsnum            # current project time signature numerator (read-only)
+  tsden            # current project time signature denominator (read-only)
+  clear([all])     # remove notes and markers. Specify "True" to clear all, instead of just selected.
+  clearNotes([all])     # remove notes. Specify "True" to clear all, instead of just selected.
+  clearMarkers([all])   # remove markers. Specify "True" to clear all, instead of just selected.
+
+  noteCount        # nr of notes (read-only)
+  addNote(note)    # add new note
+  getNote(index)   # get note
+
+  markerCount        # nr of markers (read-only)
+  addMarker(marker)  # add new marker
+  getMarker(index)   # get marker
+  
+def ScriptDialog
+  def ScriptDialog(Title, Description)        # Initializes a new script dialog
+  def AddInput(aName,Value)                   # Adds a generic input control
+  def AddInputKnob(aName, Value, Min, Max)    # Adds a knob input control with floating point value
+  def AddInputKnobInt(aName, Value, Min, Max) # Adds a knob input control with integer value
+  def AddInputCombo(aName, ValueList, Value)  # Adds a combobox input control
+  def AddInputText(aName, Value)              # Adds a text input control
+  def AddInputCheckbox(aName, Value)          # Adds a checkbox input control with boolean value
+  def GetInputValue(aName)                    # Retrieve the current value of the input with the specified name
+  def Execute                                 # Show the dialog. Returns TRUE if the user pressed OK, FALSE if the dialog was cancelled
+
+
+def TUtils 
+  def ProgressMsg(Msg,Pos,Total)      # Shows a progress message
+  def ShowMessage(Msg)                # Shows a message in a dialog box
+  def log(Msg)                        # Writes a string to the FL Studio debug log tab.
+
+Use global variable "Utils" to access these functions:
+
+Utils.ShowMessage('Test')

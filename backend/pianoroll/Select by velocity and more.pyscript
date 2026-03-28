@@ -1,0 +1,108 @@
+# Note Selector script by Ville Gustafsson (villeg@gmail.com, user Dataton in forum)
+# Selects all notes that meet conditions set user settings (or inverse)
+# v1.0
+
+import flpianoroll as flp
+
+noteNrMinCtrl = 'Note nr (min)'
+noteNrMaxCtrl = 'Note nr (max)'
+durationMinCtrl = 'Duration (min)'
+durationMaxCtrl = 'Duration (max)'
+velocityMinCtrl = 'Velocity (min)'
+velocityMaxCtrl = 'Velocity (max)'
+panMinCtrl = 'Pan (min)'
+panMaxCtrl = 'Pan (max)'
+fcutMinCtrl = 'Filter cutoff (min)'
+fcutMaxCtrl = 'Filter cutoff (max)'
+fresMinCtrl = 'Resonance (min)'
+fresMaxCtrl = 'Resonance (max)'
+pitchofsMinCtrl = 'Pitch offset (min)'
+pitchofsMaxCtrl = 'Pitch offset (max)'
+notePitchCtrl = 'Note pitch'
+hasSlideCtrl = 'Slide'
+hasPortamentoCtrl = 'Portamento'
+isMutedCtrl = 'Muted notes'
+colorCtrl = 'Color / Midi ch'
+invertSelectionCtrl = 'Invert selection'
+
+def createDialog():
+    form = flp.ScriptDialog("Condition-based Note Selection", "Selects all notes within (min) and (max) parameters set below.\r\n" + 
+                            "Note duration measured in ticks (" + str(flp.score.PPQ) + " ticks=one quarter note).\r\n" + 
+                            "Note number 0=C0,  60=C5,  131=B10 etc.\r\n" +
+                            "\r\nScript by Ville Gustafsson\r\n")
+                                
+    form.AddInputKnobInt(noteNrMinCtrl, 0, 0, 131)
+    form.AddInputKnobInt(noteNrMaxCtrl, 131, 0, 131)
+    form.AddInputKnobInt(durationMinCtrl, 0, 0, 1000)
+    form.AddInputKnobInt(durationMaxCtrl, 100, 0, 1000)
+    form.AddInputKnobInt(velocityMinCtrl, 0, 0, 100)
+    form.AddInputKnobInt(velocityMaxCtrl, 100, 0, 100)
+    form.AddInputKnobInt(panMinCtrl, -100, -100, 100)
+    form.AddInputKnobInt(panMaxCtrl, 100, -100, 100)
+    form.AddInputKnobInt(fcutMinCtrl, 0, 0, 100)
+    form.AddInputKnobInt(fcutMaxCtrl, 100, 0, 100)
+    form.AddInputKnobInt(fresMinCtrl, 0, 0, 100)
+    form.AddInputKnobInt(fresMaxCtrl, 100, 0, 100)
+    form.AddInputKnobInt(pitchofsMinCtrl, -120, -120, 120)
+    form.AddInputKnobInt(pitchofsMaxCtrl, 120, -120, 120)
+    form.AddInputCombo(notePitchCtrl, 'C,C#,D,D#,E,F,F#,G,G#,A,A#,B,all',12)
+    form.AddInputCombo(hasSlideCtrl, 'slide only,no slide,doesn\'t matter',2)
+    form.AddInputCombo(hasPortamentoCtrl, 'portamento only,no portamento,doesn\'t matter',2)
+    form.AddInputCombo(isMutedCtrl, 'muted only,no muted,doesn\'t matter',2)
+    form.AddInputCombo(colorCtrl, '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,doesn\'t matter',16)
+    form.AddInputCheckbox(invertSelectionCtrl, False)
+    
+    return form
+    
+    
+def apply(form):  
+  notes = [flp.score.getNote(i) for i in range(flp.score.noteCount)]
+  
+  noteNrMin = form.GetInputValue(noteNrMinCtrl)
+  noteNrMax = form.GetInputValue(noteNrMaxCtrl)
+  durationMin = form.GetInputValue(durationMinCtrl)
+  durationMax = form.GetInputValue(durationMaxCtrl)
+  velocityMin = form.GetInputValue(velocityMinCtrl) / 100
+  velocityMax = form.GetInputValue(velocityMaxCtrl) / 100
+  panMin = (form.GetInputValue(panMinCtrl) + 100) / 200
+  panMax = (form.GetInputValue(panMaxCtrl) + 100) / 200
+  fcutMin = form.GetInputValue(fcutMinCtrl) / 100
+  fcutMax = form.GetInputValue(fcutMaxCtrl) / 100
+  fresMin = form.GetInputValue(fresMinCtrl) / 100
+  fresMax = form.GetInputValue(fresMaxCtrl) / 100
+  pitchofsMin = form.GetInputValue(pitchofsMinCtrl)
+  pitchofsMax = form.GetInputValue(pitchofsMaxCtrl)
+  notePitch = form.GetInputValue(notePitchCtrl)
+  noSlide = form.GetInputValue(hasSlideCtrl)
+  noPortamento = form.GetInputValue(hasPortamentoCtrl)
+  noMuted = form.GetInputValue(isMutedCtrl)
+  color = form.GetInputValue(colorCtrl)
+  invertSelection = (form.GetInputValue(invertSelectionCtrl) != 0)
+  
+  for n in range(len(notes)):   
+      thisNote = notes[n]
+      meetsConditions = False
+      
+      if (thisNote.number >= noteNrMin and thisNote.number <= noteNrMax and
+          thisNote.length >= durationMin and thisNote.length <= durationMax and
+          thisNote.velocity >= velocityMin and thisNote.velocity <= velocityMax and
+          thisNote.pan >= panMin and thisNote.pan <= panMax and
+          thisNote.fcut >= fcutMin and thisNote.fcut <= fcutMax and
+          thisNote.fres >= fresMin and thisNote.fres <= fresMax and  
+          thisNote.pitchofs >= pitchofsMin and thisNote.pitchofs <= pitchofsMax):
+        meetsConditions = True
+      if (notePitch != 12 and notePitch != (thisNote.number % 12)):
+        meetsConditions = False
+      if (noSlide != 2 and not(bool(noSlide)) != thisNote.slide):
+        meetsConditions = False
+      if (noPortamento != 2 and not(bool(noPortamento)) != thisNote.porta):
+        meetsConditions = False  
+      if (noMuted != 2 and not(bool(noMuted)) != thisNote.muted):
+        meetsConditions = False  
+      if (color != 16 and color != thisNote.color):
+        meetsConditions = False  
+        
+      thisNote.selected = meetsConditions != invertSelection
+  
+  return
+

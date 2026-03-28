@@ -1,0 +1,83 @@
+import flpianoroll as flp 
+
+MAX_PULSES = 32
+NOTE_COLOR = 0
+
+
+def writeNote(time, number, length, color):
+    note = flp.Note()
+    note.time = time
+    note.number = number
+    note.length = length
+    note.color = color
+    flp.score.addNote(note)
+
+
+def bressenhamEuclidean(onsets, pulses):
+    slope = onsets / pulses
+    result = []
+    previous = -1
+    for i in range(pulses):
+        result.append((current := int(i * slope)) != previous)
+        previous = current
+    return result
+
+
+def rotate(in_list, shift):
+    return in_list[shift: ] + in_list[: shift]
+
+
+def createDialog():
+    form = flp.ScriptDialog('Euclidean', 'Euclidean Rhythm Sequencer. Three channels (CH1-CH3) with ' + 
+                            'the following controls: "Onsets" is the number of notes in the pattern; ' + 
+                            '"Offset" rotates the notes in the pattern; "Note #" to be used for that ' + 
+                            'channel (default valued of 36, 37, 42 are for use with FPC). "Pattern ' + 
+                            'Length" is the total number of 1/16th notes used in the pattern. ')
+    form.AddInputKnobInt('CH1: Onsets', 8, 0, MAX_PULSES)
+    form.AddInputKnobInt('CH1: Offset', 0, 2, MAX_PULSES)
+    form.AddInputKnobInt('CH2: Onsets', 13, 0, MAX_PULSES)
+    form.AddInputKnobInt('CH2: Offset', 0, 0, MAX_PULSES)
+    form.AddInputKnobInt('CH3: Onsets', 18, 0, MAX_PULSES)
+    form.AddInputKnobInt('CH3: Offset', 0, 0, MAX_PULSES)
+    form.AddInputKnobInt('CH1: Note #', 36, 1, 128)
+    form.AddInputKnobInt('CH2: Note #', 37, 1, 128)
+    form.AddInputKnobInt('CH3: Note #', 42, 1, 128)
+    form.AddInputKnobInt('Pattern Length', MAX_PULSES, 1, MAX_PULSES)
+    return form
+
+
+def apply(form):
+    # get values
+    noteLength = 0.25
+    pulses = form.GetInputValue("Pattern Length")
+    onsets1 = form.GetInputValue("CH1: Onsets")
+    offset1 = form.GetInputValue("CH1: Offset")
+    onsets2 = form.GetInputValue("CH2: Onsets")
+    offset2 = form.GetInputValue("CH2: Offset")
+    onsets3 = form.GetInputValue("CH3: Onsets")
+    offset3 = form.GetInputValue("CH3: Offset")
+    number1 = form.GetInputValue("CH1: Note #")
+    number2 = form.GetInputValue("CH2: Note #")
+    number3 = form.GetInputValue("CH3: Note #")
+
+    # compute rhythm
+    rhythmList1, rhythmList2, rhythmList3 = [0] * pulses, [0] * pulses, [0] * pulses
+    if onsets1:
+        rhythmList1 = rotate(bressenhamEuclidean(onsets1, pulses), -offset1)
+    if onsets2:
+        rhythmList2 = rotate(bressenhamEuclidean(onsets2, pulses), -offset2)
+    if onsets3:
+        rhythmList3 = rotate(bressenhamEuclidean(onsets3, pulses), -offset3)
+    
+    # write notes
+    for n in range(pulses):
+        if rhythmList1[n]:
+            writeNote(n * noteLength * flp.score.PPQ, number1, 
+                      noteLength * flp.score.PPQ, NOTE_COLOR)
+        if rhythmList2[n]:
+            writeNote(n * noteLength * flp.score.PPQ, number2, 
+                      noteLength * flp.score.PPQ, NOTE_COLOR)
+        if rhythmList3[n]:
+            writeNote(n * noteLength * flp.score.PPQ, number3, 
+                      noteLength * flp.score.PPQ, NOTE_COLOR)
+            

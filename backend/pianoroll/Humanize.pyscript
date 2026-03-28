@@ -1,0 +1,133 @@
+"""
+Example script for FL Studio Piano Roll Python Scripting
+
+Applies temporal and dynamics humanization to all (or selected) notes in the piano roll.  
+"""
+import flpianoroll as flp
+
+import time
+import math
+
+
+# ==================== Utility Functions ==================== #
+
+def rand_int(seed=None):
+    """
+    Generate a random non-negative integer
+
+    seed: int or None (generate a seed from current time)
+    """
+    state = time.time_ns() if seed is None else seed
+
+    while True:
+        state = (1103515245 * state + 12345) & 0x7fffffff
+        yield state
+
+
+def rand_uniform(seed=None):
+    """
+    Generate a random float in the range [0, 1)
+
+    seed: int or None (generate a seed from current time)
+    """
+    gen = rand_int(seed)
+
+    while True:
+        yield next(gen) / 0x80000000
+
+
+def rand_tri(mode=0.5, curvature_degree=1, seed=None):
+    """
+    Generate a float from the (skewed) triangular distribution in range [0, 1)
+
+    mode: horizontal position of peak of triangle (int in range [0, 1])
+    curvature_idx (int > 0): values > 1 give convexity to the sides of the triangle.  
+        Larger values result in a higher degree of curvature. 
+        1: Traingle with straight sides
+    seed: int or None (generate a seed from current time)
+    """
+    if mode < 0 or mode > 1:
+        raise ValueError(f"Invalid mode: {mode} --> Must be in range [0, 1]")
+    if curvature_degree < 1:
+        raise ValueError(f"Invalid curvature_degree: {curvature_degree} --> " + 
+                         "Must be >= 1. ")
+    gen = rand_uniform(seed)
+
+    while True:
+        x = next(gen)
+        for _ in range(int(curvature_degree)):
+            x = math.sqrt(x * mode) if x <= mode else 1 - math.sqrt((mode - 1) * (x - 1))
+        yield x
+
+
+def rand_sin_recursive(n=3, seed=None):
+    """
+    Generate a random float in range [0, 1) for n passes through a sinusoid distribution
+
+    n: based on sin^n(x)
+    seed: int or None (generate a seed from current time)
+    """
+    gen = rand_uniform(seed)
+
+    while True:
+        x = next(gen)
+        for _ in range(n):
+            x = math.acos(-2 * x + 1) / math.pi
+        yield x
+
+
+# ==================== Scripting Functions ==================== #
+
+def createDialog():
+    """
+    This creates the Dialog Box to control the tool.  
+    """
+    form = flp.ScriptDialog("Humanize Tool", "Adds random jitter and offset to note " + 
+                            "start times, lengths, and velocities.")
+    form.AddInputKnob('Start Time Range', 0.10, 0, 1)
+    form.AddInputKnob('Start Time Offset' ,0, -1, 1)
+    form.AddInputKnob('Duration Range', 0.10, 0, 1)
+    form.AddInputKnob('Duration Offset', 0, -1, 1)
+    form.AddInputKnob('Velocity Range', 0.20, 0, 1)
+    form.AddInputKnob('Velocity Offset', 0, -0.5, 0.5)
+    form.AddInputCombo('Distribution', 'Uniform,Triangular,Quasi-Normal', 2)
+    form.AddInputCombo('Start Time Max Interval', '1/32,1/64,1/128', 1)
+    form.AddInputCombo('Seed', ['None'] + [str(i) for i in range(11)], 0)
+    return form
+
+
+def apply(form):
+    """
+    This function contains the processing logic for your script.  
+
+    form: This function must accept only this parameter.  This is dealt with behind the 
+        scenes, and it is the same 'form' that was returned from the createDialog() above.  
+    """
+    seed = None if not (s := form.GetInputValue('Seed')) else s - 1
+    # get distribution
+    dist_type = form.GetInputValue('Distribution')
+    if dist_type == 0:
+        rng = rand_uniform(seed=seed)
+    elif dist_type == 1:
+        rng = rand_tri(seed=seed)
+    elif dist_type == 2:
+        rng = rand_sin_recursive(3, seed=seed)
+    max_time_change = form.GetInputValue('Start Time Max Interval')
+    max_ticks = flp.score.PPQ * 2 ** (-3 - max_time_change)
+
+    for n in range(flp.score.noteCount):
+        # Note start (absolute)
+        offset = form.GetInputValue('Start Time Offset') * max_ticks
+        change = form.GetInputValue('Start Time Range') * max_ticks * (2 * next(rng) - 1)
+        flp.score.getNote(n).time = max(flp.score.getNote(n).time + offset + change, 0)
+
+        # Note duration (relative)
+        offset = form.GetInputValue('Duration Offset')
+        change = form.GetInputValue('Duration Range') *  (2 * next(rng) - 1)
+        flp.score.getNote(n).length *= (1 + offset) * (1 + change)  
+
+        # velocity (relative)
+        offset = form.GetInputValue('Velocity Offset')
+        change = form.GetInputValue('Velocity Range') *  (2 * next(rng) - 1)
+        vel = flp.score.getNote(n).velocity * (1 + offset) * (1 + change)
+        flp.score.getNote(n).velocity = min(vel, 1)

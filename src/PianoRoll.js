@@ -252,18 +252,18 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
           {isSprinkleMode ? 'Sprinkler Active: Burst Mode' : isPaintMode ? 'Pen Mode: Single Notes' : 'Seek Mode'}
         </div>
       </div>
-      <div ref={containerRef} style={styles.scrollContainer}>
+      <div ref={melodyScrollRef} style={styles.melodyScrollContainer}>
         <div style={styles.section}>
           <div style={styles.label}>Lead Voice (Melody)</div>
           <div style={{ ...styles.canvasStack, height: PITCH_HEIGHT }} onClick={(e) => handleClick(e, false)}>
-            <div style={{ ...styles.gridOverlay, width: Math.max(totalWidth + 400, containerRef.current?.clientWidth || 0) }}>
+            <div style={{ ...styles.gridOverlay, width: Math.max(totalWidth + 400, melodyScrollRef.current?.clientWidth || 0) }}>
               {renderGrid()}
             </div>
             <canvas ref={pitchCanvasRef} style={{ height: PITCH_HEIGHT, display: 'block', marginLeft: '50px' }} />
             <div 
               style={{
                 ...styles.timeBar,
-                transform: `translateX(${playheadPosition + 50}px)`
+                transform: `translateX(${melodyPlayheadX + 50}px)`
               }} 
             />
           </div>
@@ -276,7 +276,7 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
             <div 
               style={{
                 ...styles.timeBar,
-                transform: `translateX(${playheadPosition + 50}px)`
+                transform: `translateX(${rhythmPlayheadX + 50}px)`
               }} 
             />
           </div>

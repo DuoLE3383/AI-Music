@@ -1,0 +1,150 @@
+import flpianoroll as flp
+
+import time
+
+
+# ==================== Utility Functions ==================== #
+
+def rand_int(seed=None):
+    """
+    Generate a random non-negative integer
+
+    seed: int or None (generate a seed from current time)
+    """
+    state = time.time_ns() if seed is None else seed
+
+    while True:
+        state = (75 * state + 74) % 65537
+        yield state
+
+
+def makeNote(num, time, length, color=0, velocity=0.8):
+    """
+    make a new Note object
+
+    num: pitch
+    time: time in ticks
+    length: duration in ticks
+    color: int in [0: 16)
+    """
+    note = flp.Note()
+    note.number = int(num)
+    note.time = int(time)
+    note.length = int(length)
+    note.color = int(color)
+    note.velocity = velocity
+    return note
+
+
+# ==================== Scripting Functions ==================== #
+
+def createDialog():
+    """
+    This creates the Dialog Box to control the tool.  
+    """
+    form = flp.ScriptDialog("Randomized Arpeggiator", 
+                            "Notes start times are quantized to 'Step Length', and note lengths " +
+                            "are (Step Length) x (Note Length).  \r\n" + \
+                            "Each step has probability 'Note Prob' of having a note in it.  \r\n" + \
+                            "Only notes of color 'Color' are affected.  ")
+    form.AddInputCombo('Step Length', '1/32,1/16,1/8', 1)
+    form.AddInputKnob('Note Length', 1, 0.1, 2)
+    form.AddInputCombo('Mode', ['Random', 'Increasing', 'Decreasing'], 1)
+    form.AddInputKnob('Note Prob', 0.85, 0, 1)
+    form.AddInputCombo('Color', ['None'] + [str(i) for i in range(1, 17)], 0)
+    form.AddInputCombo('Seed', ['None'] + [str(i) for i in range(11)], 0)
+    return form
+
+
+def apply(form):
+    """
+    This function contains the processing logic for your script.  
+
+    form: This function must accept only this parameter.  This is dealt with behind the 
+        scenes, and it is the same 'form' that was returned from the createDialog() above.  
+    """
+    # set up random number generator
+    seed = None if not (s := form.GetInputValue('Seed')) else s - 1
+    rng = rand_int(seed=seed)
+
+    # get list of current notes
+    all_notes = [flp.score.getNote(i) for i in range(flp.score.noteCount)]
+    # filter by color
+    if color := form.GetInputValue('Color'):
+        color -= 1
+        notes = [n for n in all_notes if n.color == color]
+        new_notes = [n for n in all_notes if n not in notes]
+    else:
+        notes = all_notes
+        new_notes = []
+    if not notes:
+        return
+    # order by start time
+    notes.sort(key=lambda n: (n.time, n.number))
+
+    # run through steps of length 'Step Length'
+    length = 2 ** (-3 + form.GetInputValue('Step Length')) * flp.score.PPQ
+    time = int(notes[0].time / length) * length
+
+    playing = []
+    pos = 0
+    note_len = form.GetInputValue('Note Length')
+    mode = form.GetInputValue('Mode')
+    prob = form.GetInputValue('Note Prob') * 10000
+    note_idx = 0
+    while pos < len(notes) or playing:
+        # check if playing notes have ended
+        playing = [n for n in playing if n.time + n.length > time]
+
+        # find notes which start in this step
+        while True:
+            try:
+                note = notes[pos]
+            except IndexError:
+                break
+
+            if note.time < time + length:
+                playing.append(note)
+                pos += 1
+            else:
+                break
+        
+        if playing:
+            if mode == 0:
+                # pick a random note to play
+                note = playing[next(rng) % len(playing)]
+            elif mode == 1:
+                # up
+                try:
+                    note = playing[note_idx]
+                except IndexError:
+                    note = playing[0]
+                    note_idx = 0                
+                note_idx += 1
+            elif mode == 2:
+                # down
+                try:
+                    note = playing[note_idx]
+                except IndexError:
+                    note = playing[-1]
+                    note_idx = len(playing) - 1             
+                note_idx -= 1
+
+            if next(rng) % 10000 < prob:
+                new_notes.append(makeNote(note.number, time, length * note_len, 
+                                          color=note.color, velocity=note.velocity))
+                # check that notes do not overlap
+                if note_len > 1:
+                    if len(new_notes) > 1 and new_notes[-2].number == new_notes[-1].number \
+                            and new_notes[-2].time + new_notes[-2].length > new_notes[-1].time:
+                        new_notes[-2].length = new_notes[-1].time - new_notes[-2].time
+        
+        # increase time
+        time += length
+    
+    # update notes
+    flp.score.clearNotes(False)
+    for note in new_notes:
+        flp.score.addNote(note)
+
+ 

@@ -49,9 +49,9 @@ const MusicFunctions = ({
     },
     {
       id: 'composition',
-      title: "Lead Voice & Composition",
+      title: "Composition",
       subsections: [
-        { label: "Lead Voice", items: ["Piano", "Guitar", "Drums", "Violin", "Bass", "Keyboard"], category: "Instruments" },
+        { label: "Lead Voice", items: ["🎹 Piano", "🎸 Guitar", "🥁 Drums", "🎻 Violin", "🎸 Bass", "🎹 Keyboard"], category: "Instruments" },
         { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" },
         // { label: "Quick Start", items: ["Add CDEFGAB"], category: "App Operations" }
       ]
@@ -201,56 +201,56 @@ const MusicFunctions = ({
 
 const styles = {
   container: {
-    backgroundColor: '#0f172a',
-    borderRadius: '24px',
-    border: '1px solid #1e293b',
+    backgroundColor: '#121214',
+    borderRadius: '12px',
+    border: '1px solid #27272a',
     overflow: 'hidden',
     boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
   },
   rackHeader: {
     padding: '16px 24px',
     backgroundColor: 'rgba(255,255,255,0.02)',
-    borderBottom: '1px solid #1e293b',
+    borderBottom: '1px solid #27272a',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center'
   },
-  title: { fontSize: '12px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '2px', color: '#64748b' },
+  title: { fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#ffffff' },
   status: { fontSize: '9px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' },
-  rackBody: { padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' },
+  rackBody: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' },
   module: {
-    padding: '16px',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: '16px',
-    border: '1px solid rgba(255,255,255,0.03)'
+    padding: '12px',
+    backgroundColor: '#18181b',
+    borderRadius: '8px',
+    border: '1px solid #27272a'
   },
   moduleLabel: { fontSize: '9px', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '16px' },
   moduleContent: { display: 'flex', flexDirection: 'column', gap: '16px' },
   subSection: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  subLabel: { fontSize: '10px', fontWeight: '700', color: '#475569' },
+  subLabel: { fontSize: '9px', fontWeight: '800', color: '#71717a', textTransform: 'uppercase' },
   buttonGroup: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
   chip: {
-    padding: '6px 12px',
-    backgroundColor: '#111418',
+    padding: '5px 10px',
+    backgroundColor: '#09090b',
     borderRadius: '4px',
-    color: '#bdc3c7',
-    fontSize: '10px',
-    fontWeight: '800',
+    color: '#a1a1aa',
+    fontSize: '11px',
+    fontWeight: '600',
     cursor: 'pointer',
-    transition: 'all 0.1s ease',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    boxShadow: '0 2px 0 #111418',
+    letterSpacing: '0.2px',
+    border: '1px solid #27272a',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
   activeChip: {
     backgroundColor: '#6366f1',
-    color: 'white',
-    borderColor: '#111418',
-    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.4)',
-    transform: 'translateY(1px)'
+    color: '#ffffff',
+    borderColor: '#818cf8',
+    boxShadow: '0 0 12px rgba(99, 102, 241, 0.4)',
+    transform: 'translateY(-1px)'
   },
   monitorGrid: { display: 'flex', flexDirection: 'column', gap: '12px' },
   monitorItem: { display: 'flex', flexDirection: 'column', gap: '4px' },

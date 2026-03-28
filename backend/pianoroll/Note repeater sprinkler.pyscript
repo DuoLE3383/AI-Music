@@ -1,0 +1,112 @@
+# Note Repeater/Sprinkler script by Ville Gustafsson (villeg@gmail.com, user Dataton in forum)
+# v1.0
+
+import flpianoroll as flp
+
+spacingValues = [0,64,32,16,8,4,2,1]
+spacingValuesStr = ['0','1/64','1/32','1/16','1/8','1/4','1/2','1/1']
+
+nofRepeatsCtrl = 'Repeats'
+removeOverlapsCtrl = 'Cut Overlaps'
+noteSpacingCtrl = 'Note Spacing'
+fineSpacingCtrl = 'Spacing (fine)'
+fixedDurationCtrl = 'Fixed Duration (0=no change)'
+durationIncDecCtrl = 'Duration dec/inc'
+durationAddSubCtrl = 'Note Duration +-'
+velIncDecCtrl = 'Velocity dec/inc'
+spacingIncDecCtrl = 'Spacing dec/inc'
+filtCutoffModXCtrl = 'Filt.Cutoff/Mod X'
+filtResModYCtrl = 'Filt.Res/Mod Y'
+pitchofsCtrl = 'Pitch offset'
+colorizeCtrl = 'Colorize notes'
+
+def createDialog():
+    form = flp.ScriptDialog("Note Repeater/Sprinkler", "Repeats all or individually selected notes while manipulating\r\n" + 
+                            "note Spacing, Duration, Velocity, Filter etc.\r\n" +
+                            "* 'dec/inc' knobs create a gradual decrease or increase.\r\n" +
+                            "\r\nScript by Ville Gustafsson\r\n")
+                            
+    form.AddInputKnobInt(nofRepeatsCtrl, 3, 0, 200)
+    form.AddInputCheckbox(removeOverlapsCtrl, True)
+    form.AddInputCombo(noteSpacingCtrl, spacingValuesStr, 3)
+    form.AddInputKnobInt(fineSpacingCtrl, 0, 0, 127)
+    form.AddInputKnob(spacingIncDecCtrl,1.0,0.5,1.3)
+    form.AddInputKnob(velIncDecCtrl,1.0,0.5,1.3)
+    form.AddInputKnobInt(durationAddSubCtrl,0,-100,100)
+    form.AddInputKnob(durationIncDecCtrl,1.0,0.5,1.5)
+    form.AddInputKnob(filtCutoffModXCtrl,1.0,0.4,1.6)
+    form.AddInputKnob(filtResModYCtrl,1.0,0.4,1.6)
+    form.AddInputCheckbox(colorizeCtrl, True)
+    return form
+    
+    
+def apply(form):  
+  notes = [flp.score.getNote(i) for i in range(flp.score.noteCount)]
+  repeats = form.GetInputValue(nofRepeatsCtrl) 
+  removeOverlaps = (form.GetInputValue(removeOverlapsCtrl) == 1)
+  spacingIndex = form.GetInputValue(noteSpacingCtrl)
+  
+  if (spacingValues[spacingIndex] == 0):
+    spacingTicks = 0
+  else:
+    spacingTicks = (flp.score.PPQ * 4) / spacingValues[spacingIndex]
+  
+  spacingFine = form.GetInputValue(fineSpacingCtrl)
+  lengthIncDec = form.GetInputValue(durationIncDecCtrl)
+  lengthAddSub = form.GetInputValue(durationAddSubCtrl)
+  velIncDec = form.GetInputValue(velIncDecCtrl)
+  spacingIncDec = form.GetInputValue(spacingIncDecCtrl)
+  filtCutoffModX = form.GetInputValue(filtCutoffModXCtrl)
+  filtResModY = form.GetInputValue(filtResModYCtrl)
+  colorize = (form.GetInputValue(colorizeCtrl) == 1)
+  
+  for n in range(len(notes)):   
+      thisNote = notes[n]
+      noteStartTime = thisNote.time
+      noteSpacing = spacingTicks + spacingFine
+      thisNote.length = max(0,thisNote.length + lengthAddSub)
+      
+      if removeOverlaps:
+        newLength = min(thisNote.length, (noteSpacing))
+        thisNote.length = newLength - 1
+      else:
+        newLength = thisNote.length
+      
+      for x in range(repeats):
+        newNote = copyNote(thisNote, ((spacingIncDec ** (x+1)) * (x+1) * noteSpacing))
+        if colorize:
+          newNote.color = ((thisNote.color+2+x) & 15)    
+    
+        if removeOverlaps: 
+          newNote.length = min((noteSpacing), max(1,newLength * (lengthIncDec ** (x+1))))
+        else:
+          newNote.length = max(1,newLength * (lengthIncDec ** (x+1)))
+        newNote.velocity = thisNote.velocity * (velIncDec ** (x+1))
+        newNote.fcut = thisNote.fcut * (filtCutoffModX ** (x+1))
+        newNote.fres = thisNote.fres * (filtResModY ** (x+1))
+  return
+
+def copyNote(note, timeOffset):
+    newNote = cloneNote(note)
+    newNote.time = note.time + timeOffset
+    flp.score.addNote(newNote)
+    return newNote
+    
+def cloneNote(note):
+    newNote = flp.Note()
+    newNote.number   = note.number      # midi note number
+    newNote.time     = note.time        # ticks
+    newNote.length   = note.length      # ticks
+    newNote.group    = note.group       # group number this note belongs to
+    newNote.pan      = note.pan         # 0.0 - 1.0, default 0.5
+    newNote.velocity = note.velocity    # 0.0 - 1.0, default 0.8
+    newNote.color    = note.color       # 0 - 15, default 0. Color group / MIDI channel.
+    newNote.fcut     = note.fcut        # 0.0 - 1.0, default 0.5
+    newNote.fres     = note.fres        # 0.0 - 1.0, default 0.5
+    newNote.pitchofs = note.pitchofs    # -120 to 120
+    newNote.slide    = note.slide       # true/false
+    newNote.porta    = note.porta       # true/false
+    newNote.muted    = note.muted       # true/false
+    newNote.selected = note.selected    # true/false
+    return newNote
+    
