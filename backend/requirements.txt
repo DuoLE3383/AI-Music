@@ -1,6 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
-magenta
-note_seq
-tensorflow==2.15.0
+mido
+setuptools
+numpy
+pretty_midi

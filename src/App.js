@@ -1,47 +1,109 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import * as mm from '@magenta/music';
-import MidiVisualizer from '../MidiVisualizer';
+import PianoRoll from './PianoRoll';
+import MusicFunctions from './MusicGlossary';
 
 const App = () => {
   const [file, setFile] = useState(null);
   const [temp, setTemp] = useState(1.0);
   const [loading, setLoading] = useState(false);
+  const [timeSig, setTimeSig] = useState('4/4');
+  const [length, setLength] = useState(8);
+  const [instrument, setInstrument] = useState(0);
+  const [bpm, setBpm] = useState(182);
   const [status, setStatus] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [remixSequence, setRemixSequence] = useState(null);
   const [remixBlob, setRemixBlob] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // States to track categorical parameters for the AI backend
+  const [style, setStyle] = useState('pop');
+  const [instrumentName, setInstrumentName] = useState('piano');
+  const [structure, setStructure] = useState('verse');
+  const [complexity, setComplexity] = useState('balanced');
+  const [transposeVal, setTransposeVal] = useState(0);
+  const [isReversed, setIsReversed] = useState(false);
+  const [isHumanized, setIsHumanized] = useState(false);
+  const [mode, setMode] = useState('major');
 
   const abortControllerRef = useRef(null);
   const playerRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
+  // Functions to create piano roll data (NoteSequences) programmatically
+  const SequenceUtils = {
+    /**
+     * Creates a NoteSequence from raw note data.
+     * @param {Array} notes - List of { pitch, start, end }
+     */
+    create: (notes) => ({
+      notes: notes.map(n => ({ pitch: n.pitch, startTime: n.start, endTime: n.end, velocity: n.velocity || 80 })),
+      totalTime: notes.length > 0 ? Math.max(...notes.map(n => n.end)) : 0,
+      tempos: [{ qpm: bpm }]
+    })
+  };
 
   useEffect(() => {
-    playerRef.current = new mm.Player();
-    return () => { if (playerRef.current) playerRef.current.stop(); };
+    // Use SoundFontPlayer for high-quality instrument sounds
+    playerRef.current = new mm.SoundFontPlayer('https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus');
+    return () => {
+      if (playerRef.current) playerRef.current.stop();
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, []);
+
+  // Real-time update: If style changes, re-generate automatically
+  useEffect(() => {
+    if (remixSequence && !loading) {
+      handleGenerate();
+    }
+    // Added missing dependencies to make the rack controls real-time
+  }, [style, mode, timeSig, bpm, complexity, structure]);
 
   const stopPlayer = () => {
     if (playerRef.current?.isPlaying()) playerRef.current.stop();
     setIsPlaying(false);
+    setCurrentTime(0);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   };
 
   const togglePlay = () => {
-    if (isPlaying) stopPlayer();
-    else if (remixSequence) {
+    if (isPlaying) {
+      stopPlayer();
+    } else if (remixSequence) {
+      playerRef.current.resumeContext(); // Call on the instance, not the class
       setIsPlaying(true);
-      playerRef.current.start(remixSequence).then(() => setIsPlaying(false));
+      
+      const offset = currentTime;
+      const startTimestamp = Date.now();
+      const updateProgress = () => {
+        if (playerRef.current?.isPlaying()) {
+          setCurrentTime(offset + (Date.now() - startTimestamp) / 1000);
+          animationFrameRef.current = requestAnimationFrame(updateProgress);
+        }
+      };
+
+      playerRef.current.start(remixSequence, undefined, offset).then(() => {
+        setIsPlaying(false);
+        if (playerRef.current && !playerRef.current.isPlaying()) setCurrentTime(0);
+        cancelAnimationFrame(animationFrameRef.current);
+      });
+
+      updateProgress();
     }
   };
 
   const handleUpload = async () => {
     if (!file) return;
-    setLoading(true); setStatus('Uploading...'); stopPlayer();
+    setLoading(true); setStatus('Uploading...'); setUploadProgress(0); stopPlayer();
     abortControllerRef.current = new AbortController();
     const formData = new FormData(); formData.append('file', file);
 
     try {
-      const res = await axios.post(`http://localhost:8000/api/remix?temperature=${temp}`, formData, {
+      const res = await axios.post(`http://localhost:8000/api/remix?temperature=${temp}&length=${length}&instrument=${instrument}&bpm=${bpm}`, formData, {
         responseType: 'blob', signal: abortControllerRef.current.signal,
         onUploadProgress: (e) => setUploadProgress(Math.round((e.loaded * 100) / e.total))
       });
@@ -52,16 +114,172 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    setLoading(true); setStatus('Generating...'); stopPlayer();
+    setLoading(true); setStatus('Generating...'); setUploadProgress(0); stopPlayer();
     abortControllerRef.current = new AbortController();
     try {
-      const res = await axios.get(`http://localhost:8000/api/generate?temperature=${temp}`, {
-        responseType: 'blob', signal: abortControllerRef.current.signal
+      const res = await axios.post(`http://localhost:8000/api/generate`, {
+        style,
+        instrument: instrumentName,
+        instrument_id: instrument,
+        structure,
+        complexity,
+        transpose: transposeVal,
+        reverse: isReversed,
+        humanize: isHumanized,
+        temperature: temp,
+        length: length,
+        bpm: bpm,
+        mode: mode,
+        time_signature: timeSig
+      }, {
+        responseType: 'blob', 
+        signal: abortControllerRef.current.signal,
+        onDownloadProgress: (e) => {
+          if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total));
+        }
       });
+
+      // If the backend returns an error message (JSON) instead of a MIDI file, 
+      // we must extract the error text from the blob.
+      if (res.data.type === 'application/json') {
+        const text = await res.data.text();
+        const errorJson = JSON.parse(text);
+        throw new Error(errorJson.detail || errorJson.error || 'AI Generation failed');
+      }
+
       const ns = await mm.blobToNoteSequence(res.data);
       setRemixBlob(res.data); setRemixSequence(ns); setStatus('Generation complete!');
-    } catch (e) { setStatus(axios.isCancel(e) ? 'Cancelled' : 'Failed'); }
-    finally { setLoading(false); }
+    } catch (e) { 
+      if (axios.isCancel(e)) {
+        setStatus('Cancelled');
+      } else {
+        console.error('Generation Error:', e);
+        setStatus(`Error: ${e.message || 'Failed'}`);
+        alert(e.message || "The AI model failed to generate a melody. Check if the backend is running.");
+      }
+    }
+    finally { setLoading(false); abortControllerRef.current = null; }
+  };
+
+  const handleGlossarySelect = (term, category) => {
+    if (category === "App Operations") {
+      if (term === "Remix") handleUpload();
+      else if (term === "Generate") handleGenerate();
+      else if (term === "Play" && !isPlaying) togglePlay();
+      else if (term === "Stop" && isPlaying) stopPlayer();
+      else if (term === "Download") handleDownload();
+    } else if (category === "Instruments") {
+      const name = term.toLowerCase();
+      setInstrumentName(name);
+      // Map to numeric ID for local playback/UI
+      const instrumentMap = { 'piano': 0, 'guitar': 24, 'drums': 128, 'violin': 40, 'bass': 32, 'keyboard': 80 };
+      if (instrumentMap[name] !== undefined) setInstrument(instrumentMap[name]);
+      setStatus(`Instrument set to ${term}`);
+    } else if (category === "Style Presets") {
+      const styleCode = term.toLowerCase().replace('-', '');
+      setStyle(styleCode);
+      setStatus(`AI Style set to ${term}`);
+    } else if (category === "Song Structure") {
+      setStructure(term.toLowerCase());
+      setStatus(`Song structure set to ${term}`);
+    } else if (category === "Time Signature") {
+      setTimeSig(term);
+      setStatus(`Time signature set to ${term}`);
+    } else if (category === "Scale" || term === "Major" || term === "Minor") {
+      setMode(term.toLowerCase());
+      setStatus(`Scale set to ${term}`);
+    } else if (category === "Melodic Transform") {
+      if (!remixSequence) {
+        setStatus('Generate a sequence first');
+        return;
+      }
+
+      setRemixSequence(prev => {
+        const newSequence = { ...prev };
+        
+        if (term === "Transpose +") {
+          setTransposeVal(v => v + 1);
+          newSequence.notes = prev.notes.map(n => ({ ...n, pitch: Math.min(127, n.pitch + 1) }));
+        } 
+        else if (term === "Transpose -") {
+          setTransposeVal(v => v - 1);
+          newSequence.notes = prev.notes.map(n => ({ ...n, pitch: Math.max(0, n.pitch - 1) }));
+        } 
+        else if (term === "Reverse") {
+          setIsReversed(!isReversed);
+          const total = prev.totalTime;
+          newSequence.notes = prev.notes.map(n => ({
+            ...n,
+            startTime: total - n.endTime,
+            endTime: total - n.startTime
+          })).sort((a, b) => a.startTime - b.startTime);
+        } 
+        else if (term === "Humanize") {
+          setIsHumanized(!isHumanized);
+          newSequence.notes = prev.notes.map(n => {
+            const timeJitter = (Math.random() - 0.5) * 0.04; // 40ms jitter
+            const velJitter = Math.floor((Math.random() - 0.5) * 30);
+            const newStart = Math.max(0, n.startTime + timeJitter);
+            return {
+              ...n,
+              startTime: newStart,
+              endTime: Math.max(newStart + 0.05, n.endTime + timeJitter),
+              velocity: Math.max(1, Math.min(127, (n.velocity || 80) + velJitter))
+            };
+          });
+        }
+        
+        return newSequence;
+      });
+
+      setStatus(`Applied ${term} to current sequence`);
+    } else if (category === "AI Complexity") {
+      setComplexity(term.toLowerCase());
+      setStatus(`AI Complexity set to ${term}`);
+    }
+  };
+
+  const updateInstrument = (val) => {
+    const id = parseInt(val);
+    setInstrument(id);
+    const idMap = { 
+      0: 'piano', 
+      24: 'guitar', 
+      40: 'violin', 
+      56: 'trumpet', 
+      80: 'keyboard', 
+      118: 'drums', 
+      128: 'drums' 
+    };
+    if (idMap[id]) setInstrumentName(idMap[id]);
+
+    // Patch existing sequence so playback uses the new instrument immediately without regeneration
+    if (remixSequence) {
+      setRemixSequence(prev => ({
+        ...prev,
+        notes: prev.notes.map(n => ({ 
+          ...n, 
+          program: id, 
+          isDrum: id === 118 || id === 128 
+        }))
+      }));
+    }
+  };
+
+  const handleNoteAdd = (note) => {
+    if (!remixSequence) return;
+    setRemixSequence(prev => ({
+      ...prev,
+      notes: [...prev.notes, { ...note, program: instrument, isDrum: instrument === 118 || instrument === 128 }],
+      // Ensure totalTime expands if we paint beyond the current end
+      totalTime: Math.max(prev.totalTime, note.endTime)
+    }));
+    setStatus('Note added manually');
+  };
+
+  const handleSeek = (time) => {
+    if (isPlaying) stopPlayer();
+    setCurrentTime(time);
   };
 
   const handleDownload = () => {
@@ -69,52 +287,117 @@ const App = () => {
     const a = document.createElement('a');
     a.href = url; a.download = file ? `remix_${file.name}` : 'generated.mid';
     a.click();
+    // Clean up the object URL to prevent memory leaks
+    setTimeout(() => window.URL.revokeObjectURL(url), 100);
   };
 
   return (
     <div style={styles.container}>
-      <div style={styles.card}>
-        <h2>AI MIDI Remixer</h2>
-        <input type="file" onChange={(e) => setFile(e.target.files[0])} style={{marginBottom: '20px'}} />
-        <div style={{marginBottom: '20px'}}>
-          <label>Temperature: {temp}</label>
-          <input type="range" min="0.1" max="2.0" step="0.1" value={temp} onChange={(e) => setTemp(e.target.value)} style={{width: '100%'}} />
+      <div style={styles.header}>
+        <div style={styles.logo}>AI MIDI <span style={{color: '#6366f1'}}>STUDIO</span></div>
+        <div style={styles.statusBadge}>{status || 'Ready'}</div>
+      </div>
+
+      <div style={styles.mainLayout}>
+        <div style={styles.leftColumn}>
+          <MusicFunctions 
+            onSelect={handleGlossarySelect} 
+            activeValues={{
+              style, instrumentName, structure, complexity, 
+              transposeVal, isReversed, isHumanized, mode, timeSig 
+            }}
+            sequence={remixSequence}
+            temp={temp} setTemp={setTemp}
+            bpm={bpm} setBpm={setBpm}
+            timeSig={timeSig} setTimeSig={setTimeSig}
+            length={length} setLength={setLength}
+            instrument={instrument} updateInstrument={updateInstrument}
+            setFile={setFile}
+            handleUpload={handleUpload}
+            handleGenerate={handleGenerate}
+            loading={loading}
+            uploadProgress={uploadProgress}
+          />
         </div>
 
-        {loading && (
-          <div style={{margin: '10px 0'}}>
-            <div style={{fontSize: '12px'}}>{status} ({uploadProgress}%)</div>
-            <div style={styles.progressBg}><div style={{...styles.progressFill, width: `${uploadProgress}%`}} /></div>
-            <button onClick={() => abortControllerRef.current?.abort()} style={styles.cancelBtn}>Cancel</button>
-          </div>
-        )}
+        <div style={styles.rightColumn}>
+          {remixSequence ? (
+            <div style={styles.visualizerCard}>
+              <div style={styles.rightHeader}>
+                <div style={styles.dawTab}>Piano Roll - Pattern 1</div>
+                <div style={{display: 'flex', gap: '8px'}}>
+                  <button onClick={togglePlay} style={{...styles.controlBtn, color: isPlaying ? '#ff4e4e' : '#52ff52', boxShadow: isPlaying ? 'inset 0 2px 5px rgba(0,0,0,0.5)' : styles.controlBtn.boxShadow}}>
+                    {isPlaying ? '◼' : '▶'}
+                  </button>
+                  <button onClick={handleDownload} style={{...styles.controlBtn, color: '#e67e22'}}>💾</button>
+                </div>
+              </div>
 
-        <div style={{display: 'flex', gap: '10px'}}>
-          <button onClick={handleUpload} disabled={loading || !file} style={loading || !file ? styles.btnDisabled : styles.btn}>Remix</button>
-          <button onClick={handleGenerate} disabled={loading} style={loading ? styles.btnDisabled : {...styles.btn, backgroundColor: '#673ab7'}}>Generate</button>
+              <div style={styles.pianoRollWrapper}>
+                <PianoRoll 
+                  sequence={{...remixSequence, tempos: [{ qpm: bpm }]}} 
+                  currentTime={currentTime} 
+                  onSeek={handleSeek}
+                  onAddNote={handleNoteAdd}
+                />
+              </div>
+
+              <div style={styles.subSection}>
+                <div style={styles.label}>Waveform Pattern</div>
+                <div style={styles.waveformPlaceholder}>Waveform rendering engine ready...</div>
+              </div>
+
+              <div style={styles.subSection}>
+                <div style={styles.label}>AI Generation Insights</div>
+                <div style={styles.insightsGrid}>
+                  <div style={styles.insightItem}>
+                    <div style={styles.insightLabel}>Style</div>
+                    <div style={styles.insightValue}>{style}</div>
+                  </div>
+                  <div style={styles.insightItem}>
+                    <div style={styles.insightLabel}>Complexity</div>
+                    <div style={styles.insightValue}>{complexity}</div>
+                  </div>
+                  <div style={styles.insightItem}>
+                    <div style={styles.insightLabel}>Structure</div>
+                    <div style={styles.insightValue}>{structure}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={styles.emptyStateCard}>
+              <h2 style={styles.visualizerTitle}>Output Preview</h2>
+              <p style={{color: '#64748b', fontSize: '14px'}}>Waiting for generation or remix...</p>
+            </div>
+          )}
         </div>
-
-        {remixSequence && (
-          <div style={{marginTop: '20px'}}>
-            <MidiVisualizer sequence={remixSequence} />
-            <button onClick={togglePlay} style={{...styles.btn, backgroundColor: isPlaying ? '#f44336' : '#2196f3', marginTop: '10px'}}>
-              {isPlaying ? 'Stop' : 'Play'}
-            </button>
-            <button onClick={handleDownload} style={{...styles.btn, backgroundColor: '#4caf50', marginTop: '10px'}}>Download</button>
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
 const styles = {
-  container: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontFamily: 'sans-serif' },
-  card: { backgroundColor: '#1e1e1e', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' },
-  btn: { width: '100%', padding: '10px', backgroundColor: '#3f51b5', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-  btnDisabled: { width: '100%', padding: '10px', backgroundColor: '#444', color: '#888', border: 'none', borderRadius: '4px', cursor: 'not-allowed' },
-  cancelBtn: { marginTop: '5px', backgroundColor: 'transparent', color: '#ff5252', border: '1px solid #ff5252', borderRadius: '4px', cursor: 'pointer', width: '100%', padding: '5px' },
-  progressBg: { width: '100%', height: '8px', backgroundColor: '#333', borderRadius: '4px', overflow: 'hidden', marginTop: '5px' },
-  progressFill: { height: '100%', backgroundColor: '#3f51b5', transition: 'width 0.3s ease' }
+  container: { display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '100vh', width: '100%', boxSizing: 'border-box', fontFamily: "'Segoe UI', Tahoma, sans-serif", background: '#191c21', color: '#bdc3c7', overflowY: 'auto', padding: '0 20px 40px 20px' },
+  header: { width: '100%', maxWidth: '1600px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 0', borderBottom: '2px solid #2c313a', marginBottom: '30px' },
+  logo: { fontSize: '20px', fontWeight: '900', letterSpacing: '2px', color: '#e67e22' },
+  statusBadge: { fontSize: '10px', padding: '6px 12px', backgroundColor: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '20px', color: '#818cf8', fontWeight: '700', textTransform: 'uppercase' },
+  mainLayout: { display: 'flex', flexDirection: 'row', gap: '40px', alignItems: 'flex-start', width: '100%', maxWidth: '1600px', flexWrap: 'wrap' },
+  leftColumn: { display: 'flex', flexDirection: 'column', gap: '20px', flex: '1 1 380px', minWidth: '320px', maxWidth: '450px' },
+  rightColumn: { flex: '2 1 600px', width: '100%', minWidth: '320px' },
+  controlCard: { backgroundColor: '#24282e', padding: '24px', borderRadius: '4px', border: '1px solid #3e444e', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' },
+  visualizerCard: { backgroundColor: '#323841', borderRadius: '4px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', border: '1px solid #4b5563', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  rightHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#3b424c', padding: '8px 15px', borderBottom: '1px solid #191c21' },
+  dawTab: { fontSize: '11px', fontWeight: '700', color: '#bdc3c7', textTransform: 'uppercase', letterSpacing: '1px' },
+  pianoRollWrapper: { background: '#1e2227', borderBottom: '1px solid #2c313a' },
+  section: { marginBottom: '24px' },
+  row: { display: 'flex', gap: '20px', marginBottom: '24px' },
+  label: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#94a3b8', display: 'block', marginBottom: '8px', fontWeight: '700' },
+  fileInput: { width: '100%', padding: '12px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' },
+  select: { width: '100%', padding: '12px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '12px', outline: 'none' },
+  controlBtn: { padding: '12px 45px', backgroundColor: '#3b424c', border: '1px solid #111418', borderRadius: '4px', cursor: 'pointer', fontWeight: '900', fontSize: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s ease', boxShadow: '0 4px 0 #111418, 0 6px 12px rgba(0,0,0,0.3)', textShadow: '0 0 10px currentColor', color: 'white' },
+  progressBg: { width: '100%', height: '6px', backgroundColor: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginTop: '12px' },
+  rangeDAW: { width: '100%', accentColor: '#6366f1', cursor: 'pointer' },
+  subSection: { padding: '20px' },
 };
 export default App;
