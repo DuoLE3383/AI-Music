@@ -15,7 +15,6 @@ const App = () => {
   const [status, setStatus] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [remixSequence, setRemixSequence] = useState(null);
-  const [remixBlob, setRemixBlob] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
@@ -108,7 +107,7 @@ const App = () => {
         onUploadProgress: (e) => setUploadProgress(Math.round((e.loaded * 100) / e.total))
       });
       const ns = await mm.blobToNoteSequence(res.data);
-      setRemixBlob(res.data); setRemixSequence(ns); setStatus('Remix complete!');
+      setRemixSequence(ns); setStatus('Remix complete!');
     } catch (e) { setStatus(axios.isCancel(e) ? 'Cancelled' : 'Failed'); }
     finally { setLoading(false); abortControllerRef.current = null; }
   };
@@ -148,7 +147,7 @@ const App = () => {
       }
 
       const ns = await mm.blobToNoteSequence(res.data);
-      setRemixBlob(res.data); setRemixSequence(ns); setStatus('Generation complete!');
+      setRemixSequence(ns); setStatus('Generation complete!');
     } catch (e) { 
       if (axios.isCancel(e)) {
         setStatus('Cancelled');
@@ -167,13 +166,15 @@ const App = () => {
       else if (term === "Generate") handleGenerate();
       else if (term === "Play" && !isPlaying) togglePlay();
       else if (term === "Stop" && isPlaying) stopPlayer();
+      else if (term === "Add CDEFGAB") handleAddCDEFGABSequence();
       else if (term === "Download") handleDownload();
     } else if (category === "Instruments") {
       const name = term.toLowerCase();
-      setInstrumentName(name);
       // Map to numeric ID for local playback/UI
       const instrumentMap = { 'piano': 0, 'guitar': 24, 'drums': 128, 'violin': 40, 'bass': 32, 'keyboard': 80 };
-      if (instrumentMap[name] !== undefined) setInstrument(instrumentMap[name]);
+      if (instrumentMap[name] !== undefined) {
+        updateInstrument(instrumentMap[name].toString());
+      }
       setStatus(`Instrument set to ${term}`);
     } else if (category === "Style Presets") {
       const styleCode = term.toLowerCase().replace('-', '');
@@ -195,7 +196,7 @@ const App = () => {
       }
 
       setRemixSequence(prev => {
-        const newSequence = { ...prev };
+        const newSequence = JSON.parse(JSON.stringify(prev)); // Deep copy to trigger re-render
         
         if (term === "Transpose +") {
           setTransposeVal(v => v + 1);
@@ -267,14 +268,54 @@ const App = () => {
   };
 
   const handleNoteAdd = (note) => {
-    if (!remixSequence) return;
     setRemixSequence(prev => ({
-      ...prev,
-      notes: [...prev.notes, { ...note, program: instrument, isDrum: instrument === 118 || instrument === 128 }],
+      notes: [...(prev?.notes || []), { ...note, program: instrument, isDrum: instrument === 118 || instrument === 128 }],
+      tempos: prev?.tempos || [{ qpm: bpm }],
       // Ensure totalTime expands if we paint beyond the current end
-      totalTime: Math.max(prev.totalTime, note.endTime)
+      totalTime: Math.max(prev?.totalTime || 0, note.endTime)
     }));
     setStatus('Note added manually');
+  };
+
+  const handleNoteRemove = (noteToRemove) => {
+    setRemixSequence(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        notes: prev.notes.filter(n => n !== noteToRemove)
+      };
+    });
+    setStatus('Note removed');
+  };
+
+  const handleAddCDEFGABSequence = () => {
+    const cdefgabPitches = [60, 62, 64, 65, 67, 69, 71]; // C4, D4, E4, F4, G4, A4, B4
+    const beatDuration = 60 / bpm;
+    const noteDuration = beatDuration / 2; // Actual half-beat duration in seconds
+
+    setRemixSequence(prev => {
+      const newNotes = [];
+      let startTime = 0; // Always start at the beginning for Quick Start
+
+      cdefgabPitches.forEach(pitch => {
+        newNotes.push({
+          pitch: pitch,
+          startTime: startTime,
+          endTime: startTime + noteDuration,
+          velocity: 80,
+          program: instrument, // Use current instrument
+          isDrum: instrument === 118 || instrument === 128
+        });
+        startTime += noteDuration;
+      });
+
+      return {
+        notes: newNotes,
+        totalTime: startTime,
+        tempos: [{ qpm: bpm }]
+      };
+    });
+    setStatus('Added CDEFGAB sequence');
   };
 
   const handleSeek = (time) => {
@@ -283,12 +324,21 @@ const App = () => {
   };
 
   const handleDownload = () => {
-    const url = window.URL.createObjectURL(remixBlob);
-    const a = document.createElement('a');
-    a.href = url; a.download = file ? `remix_${file.name}` : 'generated.mid';
-    a.click();
-    // Clean up the object URL to prevent memory leaks
-    setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    if (!remixSequence) return;
+    try {
+      // Convert the current live NoteSequence back to MIDI bytes
+      const midiBytes = mm.sequenceProtoToMidi(remixSequence);
+      const blob = new Blob([midiBytes], { type: 'audio/midi' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; 
+      a.download = file ? `remix_${file.name}` : 'generated.mid';
+      a.click();
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (err) {
+      console.error('Download failed:', err);
+      setStatus('Download failed');
+    }
   };
 
   return (
@@ -326,10 +376,16 @@ const App = () => {
               <div style={styles.rightHeader}>
                 <div style={styles.dawTab}>Piano Roll - Pattern 1</div>
                 <div style={{display: 'flex', gap: '8px'}}>
-                  <button onClick={togglePlay} style={{...styles.controlBtn, color: isPlaying ? '#ff4e4e' : '#52ff52', boxShadow: isPlaying ? 'inset 0 2px 5px rgba(0,0,0,0.5)' : styles.controlBtn.boxShadow}}>
-                    {isPlaying ? '◼' : '▶'}
+                  <button 
+                    onClick={togglePlay} 
+                    style={{
+                      ...styles.controlBtn, 
+                      color: isPlaying ? '#ef4444' : '#10b981',
+                      backgroundColor: isPlaying ? 'rgba(239, 68, 68, 0.1)' : 'transparent'
+                    }}>
+                    {isPlaying ? 'Stop' : 'Play'}
                   </button>
-                  <button onClick={handleDownload} style={{...styles.controlBtn, color: '#e67e22'}}>💾</button>
+                  <button onClick={handleDownload} style={{...styles.controlBtn, color: '#e67e22'}}>Download</button>
                 </div>
               </div>
 
@@ -339,6 +395,7 @@ const App = () => {
                   currentTime={currentTime} 
                   onSeek={handleSeek}
                   onAddNote={handleNoteAdd}
+                  onRemoveNote={handleNoteRemove}
                 />
               </div>
 
@@ -386,16 +443,16 @@ const styles = {
   leftColumn: { display: 'flex', flexDirection: 'column', gap: '20px', flex: '1 1 380px', minWidth: '320px', maxWidth: '450px' },
   rightColumn: { flex: '2 1 600px', width: '100%', minWidth: '320px' },
   controlCard: { backgroundColor: '#24282e', padding: '24px', borderRadius: '4px', border: '1px solid #3e444e', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' },
-  visualizerCard: { backgroundColor: '#323841', borderRadius: '4px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', border: '1px solid #4b5563', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  rightHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#3b424c', padding: '8px 15px', borderBottom: '1px solid #191c21' },
-  dawTab: { fontSize: '11px', fontWeight: '700', color: '#bdc3c7', textTransform: 'uppercase', letterSpacing: '1px' },
-  pianoRollWrapper: { background: '#1e2227', borderBottom: '1px solid #2c313a' },
+  visualizerCard: { backgroundColor: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  rightHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+  dawTab: { fontSize: '9px', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '1.5px' },
+  pianoRollWrapper: { background: 'transparent' },
   section: { marginBottom: '24px' },
   row: { display: 'flex', gap: '20px', marginBottom: '24px' },
   label: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#94a3b8', display: 'block', marginBottom: '8px', fontWeight: '700' },
   fileInput: { width: '100%', padding: '12px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' },
   select: { width: '100%', padding: '12px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '12px', outline: 'none' },
-  controlBtn: { padding: '12px 45px', backgroundColor: '#3b424c', border: '1px solid #111418', borderRadius: '4px', cursor: 'pointer', fontWeight: '900', fontSize: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.1s ease', boxShadow: '0 4px 0 #111418, 0 6px 12px rgba(0,0,0,0.3)', textShadow: '0 0 10px currentColor', color: 'white' },
+  controlBtn: { padding: '6px 16px', backgroundColor: 'transparent', border: '1px solid #334155', borderRadius: '4px', cursor: 'pointer', fontWeight: '900', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', color: '#94a3b8' },
   progressBg: { width: '100%', height: '6px', backgroundColor: '#1e293b', borderRadius: '3px', overflow: 'hidden', marginTop: '12px' },
   rangeDAW: { width: '100%', accentColor: '#6366f1', cursor: 'pointer' },
   subSection: { padding: '20px' },

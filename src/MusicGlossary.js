@@ -49,10 +49,11 @@ const MusicFunctions = ({
     },
     {
       id: 'composition',
-      title: "Composition Engine",
+      title: "Lead Voice & Composition",
       subsections: [
-        // { label: "Lead Voice", items: ["Piano", "Guitar", "Drums", "Violin", "Bass", "Keyboard"], category: "Instruments" },
-        { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" }
+        { label: "Lead Voice", items: ["Piano", "Guitar", "Drums", "Violin", "Bass", "Keyboard"], category: "Instruments" },
+        { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" },
+        // { label: "Quick Start", items: ["Add CDEFGAB"], category: "App Operations" }
       ]
     },
     {
@@ -64,16 +65,16 @@ const MusicFunctions = ({
     }
   ];
 
-  const isItemActive = (item, label) => {
+  const isItemActive = (item, label, category) => {
     const val = item.toLowerCase();
     const styleVal = val.replace('-', '');
     
-    if (label === "Style Preset") return activeValues.style === styleVal;
-    if (label === "Complexity") return activeValues.complexity === val;
-    if (label === "Lead Voice") return activeValues.instrumentName === val;
-    if (label === "Structure") return activeValues.structure === val;
-    if (label === "Scale") return activeValues.mode === val;
-    if (label === "Time Sig") return activeValues.timeSig === item;
+    if (category === "Style Presets") return activeValues.style === styleVal;
+    if (category === "AI Complexity") return activeValues.complexity === val;
+    if (category === "Instruments") return activeValues.instrumentName === val;
+    if (category === "Song Structure") return activeValues.structure === val;
+    if (category === "Scale") return activeValues.mode === val;
+    if (category === "Time Signature") return activeValues.timeSig === item;
     if (item === "Reverse") return activeValues.isReversed;
     if (item === "Humanize") return activeValues.isHumanized;
     return false;
@@ -111,7 +112,7 @@ const MusicFunctions = ({
               <div style={{ flex: 1 }}>
                 <div style={styles.subLabel}>Time Sig</div>
                 <div style={styles.buttonGroup}>
-                  {['3/4', '4/4', '4/6'].map(ts => (
+                  {['3/4', '4/4', '6/8'].map(ts => (
                     <button key={ts} onClick={() => onSelect(ts, 'Time Signature')} 
                       style={{...styles.chip, ...(activeValues.timeSig === ts ? styles.activeChip : {})}}>
                       {ts}
@@ -141,17 +142,6 @@ const MusicFunctions = ({
                   <option value="16">16 Bars</option>
                 </select>
               </div>
-            </div>
-
-            <div style={styles.subSection}>
-              <div style={styles.subLabel}>Lead Voice</div>
-              <select value={instrument} onChange={(e) => updateInstrument(e.target.value)} style={styles.select}>
-                <option value="0">Piano</option>
-                <option value="24">Guitar</option>
-                <option value="40">Violin</option>
-                <option value="80">Synth</option>
-                <option value="118">Drums</option>
-              </select>
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
@@ -191,7 +181,7 @@ const MusicFunctions = ({
                         key={item}
                         style={{
                           ...styles.chip,
-                          ...(isItemActive(item, sub.label) ? styles.activeChip : {})
+                          ...(isItemActive(item, sub.label, sub.category) ? styles.activeChip : {})
                         }}
                         onClick={() => onSelect && onSelect(item, sub.category)}
                       >
