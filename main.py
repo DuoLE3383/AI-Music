@@ -110,7 +110,8 @@ async def generate_music(req: GenerateRequest):
     # Mock melody generation (Replace with model.decode(z, length=num_bars))
     current_time = 0
     for _ in range(num_bars * 2): # 2 notes per bar
-        pitch = int(60 + np.random.randint(-10, 10))
+        # Strictly 2-octave range centered at Middle C (60)
+        pitch = int(60 + np.random.randint(-12, 13)) 
         duration = 0.5
         inst.notes.append(pretty_midi.Note(velocity=100, pitch=pitch, start=current_time, end=current_time + duration))
         current_time += duration

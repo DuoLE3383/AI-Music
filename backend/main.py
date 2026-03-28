@@ -135,8 +135,8 @@ async def generate_music(req: GenerateRequest):
     for _ in range(num_bars * 2): # 2 notes per bar
         # Ensure the pitch stays within the selected scale
         degree = np.random.randint(0, len(scale_intervals))
-        octave = np.random.randint(4, 6) # Octaves 4 or 5
-        pitch = (octave * 12) + scale_intervals[degree]
+        octave_offset = np.random.randint(0, 2) * 12 # 0 or 12 semitones
+        pitch = 48 + octave_offset + scale_intervals[degree] # Starts at MIDI 48 (C3), max 71 (B4)
         
         inst.notes.append(pretty_midi.Note(velocity=100, pitch=pitch, start=current_time, end=current_time + note_duration))
         current_time += note_duration

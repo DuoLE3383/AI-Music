@@ -186,7 +186,7 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
       </div>
       <div ref={containerRef} style={styles.scrollContainer}>
         <div style={styles.section}>
-          <div style={styles.label}>Pitch Profile</div>
+          <div style={styles.label}>Lead Voice (Melody)</div>
           <div style={{ ...styles.canvasStack, height: PITCH_HEIGHT }} onClick={(e) => handleClick(e, false)}>
             <div style={{ ...styles.gridOverlay, width: Math.max(2000, totalWidth + 400) }}>
               {renderGrid()}
