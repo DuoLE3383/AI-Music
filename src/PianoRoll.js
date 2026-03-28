@@ -17,23 +17,26 @@ const PITCH_LABELS = {
   10: 'A#'
 };
 const NATURAL_LABELS = {
-  0: 'C (Do)',
-  2: 'D (Re)',
-  4: 'E (Mi)',
-  5: 'F (Fa)',
-  7: 'G (Sol)',
-  9: 'A (La)',
-  11: 'B (Si)'
+  0: 'C',
+  2: 'D',
+  4: 'E',
+  5: 'F',
+  7: 'G',
+  9: 'A',
+  11: 'B'
 };
 
 const IS_SHARP = [1, 3, 6, 8, 10];
 
 const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) => {
   const [isPaintMode, setIsPaintMode] = useState(false);
+  const [isSprinkleMode, setIsSprinkleMode] = useState(false);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(PIXELS_PER_BEAT);
   const pitchCanvasRef = useRef(null);
   const rhythmCanvasRef = useRef(null);
-  const containerRef = useRef(null);
+  const melodyScrollRef = useRef(null);
+  const wrapperRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   // Get BPM from sequence or default to 120
   const qpm = sequence?.tempos?.[0]?.qpm || 120;
@@ -41,8 +44,15 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
   const pixelsPerSecond = pixelsPerBeat / secondsPerBeat;
   const totalWidth = (sequence?.totalTime || 0) * pixelsPerSecond;
 
-  // Calculate playhead position based on time -> pixels
-  const playheadPosition = currentTime * pixelsPerSecond;
+  // Melody Playhead
+  const melodyPlayheadX = currentTime * pixelsPerSecond;
+
+  // Rhythm Auto-Zoom logic: fit the entire sequence into the available container width
+  // Subtracting 100px to account for the sidebar and padding
+  const rhythmPPS = (sequence?.totalTime > 0 && containerWidth > 0) 
+    ? (containerWidth - 100) / sequence.totalTime 
+    : pixelsPerSecond;
+  const rhythmPlayheadX = currentTime * rhythmPPS;
 
   const renderGrid = () => {
     const lines = [];
@@ -58,6 +68,7 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
           ...styles.gridRow, 
           top: y, 
           height: PITCH_NOTE_HEIGHT,
+          width: '100%',
           backgroundColor: isSharp ? 'rgba(0,0,0,0.3)' : 'transparent'
         }}>
           <div style={styles.gridLine} />
@@ -78,6 +89,20 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
 
     return lines;
   };
+
+  // Track width changes for the Rhythm Auto-Zoom
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+    
+    const observer = new ResizeObserver(entries => {
+      for (let entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    
+    observer.observe(wrapperRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (sequence) {
@@ -101,32 +126,46 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
         new mm.PianoRollCanvasVisualizer(rhythmSequence, rhythmCanvasRef.current, {
           noteRGB: '139, 92, 246',
           activeNoteRGB: '255, 255, 255',
-          pixelsPerTimeStep: pixelsPerSecond,
-          minPitch: 60,
-          maxPitch: 60,
+          pixelsPerTimeStep: rhythmPPS,
+          minPitch: 70,
+          maxPitch: 80,
           noteHeight: RHYTHM_HEIGHT
         });
       }
     }
-  }, [sequence, pixelsPerSecond]);
+  }, [sequence, pixelsPerSecond, rhythmPPS]);
 
-  // Auto-scroll the container to follow the playhead
+  // Auto-scroll logic: Only for the Melody container
   useEffect(() => {
-    if (containerRef.current && playheadPosition > 0) {
-      const container = containerRef.current;
-      const scrollBuffer = 100;
-      if (playheadPosition > container.scrollLeft + container.clientWidth - scrollBuffer) {
-        container.scrollLeft = playheadPosition - (container.clientWidth / 2);
+    if (melodyScrollRef.current) {
+      const container = melodyScrollRef.current;
+      const scrollBuffer = 150;
+      const absolutePlayhead = melodyPlayheadX + 50;
+
+      if (absolutePlayhead > container.scrollLeft + container.clientWidth - scrollBuffer) {
+        container.scrollLeft = absolutePlayhead - (container.clientWidth / 2);
+      } else if (absolutePlayhead < container.scrollLeft + scrollBuffer && absolutePlayhead > 50) {
+        container.scrollLeft = Math.max(0, absolutePlayhead - (container.clientWidth / 2));
       }
     }
-  }, [playheadPosition]);
+  }, [melodyPlayheadX]);
+
+  const handleAutoZoomMelody = () => {
+    if (!sequence || !melodyScrollRef.current) return;
+    const totalTime = sequence.totalTime || 1;
+    const targetPPS = (melodyScrollRef.current.clientWidth - 100) / totalTime;
+    const targetPixelsPerBeat = targetPPS * secondsPerBeat;
+    setPixelsPerBeat(Math.max(10, Math.min(200, targetPixelsPerBeat)));
+  };
 
   const handleClick = (e, isRhythm = false) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const sidebarWidth = 50;
+    const x = Math.max(0, e.clientX - rect.left - sidebarWidth);
     const y = e.clientY - rect.top;
     
-    const seekTime = x / pixelsPerSecond;
+    const pps = isRhythm ? rhythmPPS : pixelsPerSecond;
+    const seekTime = x / pps;
 
     if (isPaintMode && sequence) {
       let pitch = 60;
@@ -148,12 +187,29 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
       if (existingNote && onRemoveNote) {
         onRemoveNote(existingNote);
       } else if (onAddNote) {
-        onAddNote({
+        const baseNote = {
           pitch: pitch,
           startTime: seekTime,
           endTime: seekTime + (secondsPerBeat / 4), // Add a 16th note by default
           velocity: 80
-        });
+        };
+
+        if (isSprinkleMode) {
+          const repeats = 3;
+          const spacing = secondsPerBeat / 8; // 1/32 note spacing
+          const velDecay = 0.85;
+          
+          for (let x = 0; x <= repeats; x++) {
+            onAddNote({
+              ...baseNote,
+              startTime: baseNote.startTime + (x * spacing),
+              endTime: baseNote.endTime + (x * spacing),
+              velocity: Math.floor(baseNote.velocity * Math.pow(velDecay, x))
+            });
+          }
+        } else {
+          onAddNote(baseNote);
+        }
       }
     } else if (onSeek) {
       onSeek(Math.max(0, Math.min(seekTime, sequence?.totalTime || 0)));
@@ -163,16 +219,28 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
   return (
     <div style={styles.wrapper}>
       <div style={styles.headerRow}>
-        <button 
-          onClick={() => setIsPaintMode(!isPaintMode)}
-          style={{
-            ...styles.toggleBtn, 
-            backgroundColor: isPaintMode ? '#6366f1' : 'transparent',
-            borderColor: isPaintMode ? '#818cf8' : '#334155'
-          }}
-        >
-          {isPaintMode ? '✏️ Pen Mode' : '🔍 Seek Mode'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={() => { setIsPaintMode(!isPaintMode); setIsSprinkleMode(false); }}
+            style={{
+              ...styles.toggleBtn, 
+              backgroundColor: isPaintMode && !isSprinkleMode ? '#6366f1' : 'transparent',
+              borderColor: isPaintMode && !isSprinkleMode ? '#818cf8' : '#334155'
+            }}
+          >
+            ✏️ Pen
+          </button>
+          <button 
+            onClick={() => { setIsSprinkleMode(!isSprinkleMode); setIsPaintMode(true); }}
+            style={{
+              ...styles.toggleBtn, 
+              backgroundColor: isSprinkleMode ? '#a855f7' : 'transparent',
+              borderColor: isSprinkleMode ? '#c084fc' : '#334155'
+            }}
+          >
+            ✨ Sprinkle
+          </button>
+        </div>
 
         <div style={styles.zoomControls}>
           <button onClick={() => setPixelsPerBeat(prev => Math.max(10, prev - 10))} style={styles.zoomBtn}>-</button>
@@ -181,21 +249,21 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
         </div>
 
         <div style={styles.info}>
-          {isPaintMode ? 'Click canvas to add notes' : 'Click to Seek'}
+          {isSprinkleMode ? 'Sprinkler Active: Burst Mode' : isPaintMode ? 'Pen Mode: Single Notes' : 'Seek Mode'}
         </div>
       </div>
       <div ref={containerRef} style={styles.scrollContainer}>
         <div style={styles.section}>
           <div style={styles.label}>Lead Voice (Melody)</div>
           <div style={{ ...styles.canvasStack, height: PITCH_HEIGHT }} onClick={(e) => handleClick(e, false)}>
-            <div style={{ ...styles.gridOverlay, width: Math.max(2000, totalWidth + 400) }}>
+            <div style={{ ...styles.gridOverlay, width: Math.max(totalWidth + 400, containerRef.current?.clientWidth || 0) }}>
               {renderGrid()}
             </div>
-            <canvas ref={pitchCanvasRef} style={{ height: PITCH_HEIGHT, display: 'block' }} />
+            <canvas ref={pitchCanvasRef} style={{ height: PITCH_HEIGHT, display: 'block', marginLeft: '50px' }} />
             <div 
               style={{
                 ...styles.timeBar,
-                transform: `translateX(${playheadPosition}px)`
+                transform: `translateX(${playheadPosition + 50}px)`
               }} 
             />
           </div>
@@ -204,11 +272,11 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
         <div style={styles.section}>
           <div style={styles.label}>Rhythmic Pattern</div>
           <div style={{ ...styles.canvasStack, height: RHYTHM_HEIGHT }} onClick={(e) => handleClick(e, true)}>
-            <canvas ref={rhythmCanvasRef} style={{ height: RHYTHM_HEIGHT, display: 'block' }} />
+            <canvas ref={rhythmCanvasRef} style={{ height: RHYTHM_HEIGHT, display: 'block', marginLeft: '50px' }} />
             <div 
               style={{
                 ...styles.timeBar,
-                transform: `translateX(${playheadPosition}px)`
+                transform: `translateX(${playheadPosition + 50}px)`
               }} 
             />
           </div>
@@ -226,37 +294,25 @@ const styles = {
     border: '1px solid #1e293b',
     marginBottom: '20px'
   },
-  headerRow: { display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' },
+  headerRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '12px' },
   toggleBtn: {
-    marginRight: 'auto',
-    fontSize: '9px',
+    padding: '6px 12px',
+    fontSize: '10px',
     fontWeight: '800',
     color: 'white',
+    borderRadius: '6px',
     border: '1px solid',
-    borderRadius: '4px',
-    padding: '4px 10px',
     cursor: 'pointer',
     textTransform: 'uppercase',
-    transition: 'all 0.2s',
-    letterSpacing: '0.5px'
+    transition: 'all 0.2s ease'
   },
+  selectSmall: { backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' },
   zoomControls: { display: 'flex', alignItems: 'center', gap: '8px', marginRight: '20px' },
-  zoomBtn: { 
-    backgroundColor: '#1e293b', 
-    border: '1px solid #334155', 
-    color: 'white', 
-    borderRadius: '4px', 
-    padding: '2px 8px', 
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold',
-    transition: 'background 0.2s'
-  },
   zoomLabel: { fontSize: '9px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' },
   info: { fontSize: '9px', color: '#6366f1', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8 },
   section: { marginBottom: '16px' },
   label: { fontSize: '9px', textTransform: 'uppercase', letterSpacing: '1px', color: '#64748b', marginBottom: '8px', fontWeight: '800' },
-  scrollContainer: {
+  melodyScrollContainer: {
     width: '100%',
     overflowX: 'auto',
     backgroundColor: '#0f172a',
@@ -267,6 +323,8 @@ const styles = {
     scrollbarWidth: 'thin',
     scrollbarColor: '#334155 transparent'
   },
+  mainLayout: { display: 'flex', flexDirection: 'column' },
+  zoomBtn: { backgroundColor: '#1e293b', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' },
   gridOverlay: {
     position: 'absolute',
     top: 0,
@@ -291,14 +349,23 @@ const styles = {
     borderBottom: '1px solid rgba(255,255,255,0.02)',
     boxSizing: 'border-box'
   },
-  gridLabelContainer: { position: 'sticky', left: 0, zIndex: 5, paddingLeft: '4px' },
+  gridLabelContainer: { 
+    position: 'sticky', 
+    left: 0, 
+    zIndex: 5, 
+    width: '50px', 
+    height: '100%', 
+    backgroundColor: '#0f172a', 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    borderRight: '2px solid rgba(99, 102, 241, 0.2)',
+    flexShrink: 0
+  },
   gridLabel: {
-    fontSize: '8px',
-    color: '#475569',
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
+    fontSize: '10px',
+    color: '#94a3b8',
+    fontWeight: '800',
   },
   verticalLine: { position: 'absolute', top: 0, height: '100%', pointerEvents: 'none' },
   canvasStack: { position: 'relative', display: 'inline-block', cursor: 'pointer' },
