@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as mm from '@magenta/music';
 
+import './MusicGlossary.css';
 const PIXELS_PER_STEP = 30;
 
 const MusicFunctions = ({ 
@@ -11,26 +12,12 @@ const MusicFunctions = ({
   uploadProgress, abortControllerRef
 }) => {
   const pitchCanvasRef = useRef(null);
-  const rhythmCanvasRef = useRef(null);
 
   useEffect(() => {
     if (sequence) {
       if (pitchCanvasRef.current) {
         new mm.PianoRollCanvasVisualizer(sequence, pitchCanvasRef.current, {
           noteRGB: '99, 102, 241',
-          activeNoteRGB: '255, 255, 255',
-          pixelsPerTimeStep: PIXELS_PER_STEP,
-        });
-      }
-
-      if (rhythmCanvasRef.current) {
-        // Create a flattened rhythm sequence
-        const rhythmSequence = {
-          ...sequence,
-          notes: sequence.notes.map(n => ({ ...n, pitch: 60 })) 
-        };
-        new mm.PianoRollCanvasVisualizer(rhythmSequence, rhythmCanvasRef.current, {
-          noteRGB: '139, 92, 246',
           activeNoteRGB: '255, 255, 255',
           pixelsPerTimeStep: PIXELS_PER_STEP,
         });
@@ -44,25 +31,23 @@ const MusicFunctions = ({
       title: "AI Personality",
       subsections: [
         { label: "Style Preset", items: ["Pop", "Rock", "Jazz", "Classical", "Hip-hop", "EDM"], category: "Style Presets" },
+        { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" },
         { label: "Complexity", items: ["Stable", "Balanced", "Creative", "Chaotic"], category: "AI Complexity" }
       ]
-    },
-    {
-      id: 'composition',
-      title: "Composition",
-      subsections: [
-        { label: "Lead Voice", items: ["🎹 Piano", "🎸 Guitar", "🥁 Drums", "🎻 Violin", "🎸 Bass", "🎹 Keyboard"], category: "Instruments" },
-        { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" },
-        // { label: "Quick Start", items: ["Add CDEFGAB"], category: "App Operations" }
-      ]
-    },
-    {
-      id: 'processing',
-      title: "Melodic Transforms",
-      subsections: [
-        { label: "Post-Processing", items: ["Transpose +", "Transpose -", "Reverse", "Humanize"], category: "Melodic Transform" }
-      ]
     }
+    // {
+    //   id: 'composition',
+    //   title: "Composition",
+    //   subsections: [
+    //   ]
+    // },
+    // {
+    //   id: 'processing',
+    //   title: "Melodic Transforms",
+    //   subsections: [
+    //     { label: "Post-Processing", items: ["Transpose +", "Transpose -", "Reverse", "Humanize", "Sprinkle"], category: "Melodic Transform" }
+    //   ]
+    // }
   ];
 
   const isItemActive = (item, label, category) => {
@@ -81,62 +66,62 @@ const MusicFunctions = ({
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.rackHeader}>
-        <div style={styles.title}>Control</div>
-        <div style={styles.status}>Link Active</div>
+    <div className="music-glossary-container">
+      <div className="music-glossary-rack-header">
+        <div className="music-glossary-title">Control</div>
+        <div className="music-glossary-status">Link Active</div>
       </div>
       
-      <div style={styles.rackBody}>
+      <div className="music-glossary-rack-body">
         {/* Merged Global Controls */}
-        <div style={styles.module}>
-          <div style={styles.moduleLabel}>Session Master</div>
-          <div style={styles.moduleContent}>
-            <div style={styles.subSection}>
-              <div style={styles.subLabel}>Base MIDI File</div>
-              <input type="file" onChange={(e) => setFile(e.target.files[0])} style={styles.fileInput} />
+        <div className="music-glossary-module">
+          <div className="music-glossary-module-label">Session Master</div>
+          <div className="music-glossary-module-content">
+            <div className="music-glossary-sub-section">
+              <div className="music-glossary-sub-label">Base MIDI File</div>
+              <input type="file" onChange={(e) => setFile(e.target.files[0])} className="music-glossary-file-input" />
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <div style={{ flex: 1 }}>
-                <div style={styles.subLabel}>Scale</div>
-                <div style={styles.buttonGroup}>
+                <div className="music-glossary-sub-label">Scale</div>
+                <div className="music-glossary-button-group">
                   {['Major', 'Minor'].map(m => (
                     <button key={m} onClick={() => onSelect(m, 'Scale')} 
-                      style={{...styles.chip, ...(activeValues.mode === m.toLowerCase() ? styles.activeChip : {})}}>
+                      className={`music-glossary-chip ${activeValues.mode === m.toLowerCase() ? 'active' : ''}`}>
                       {m}
                     </button>
                   ))}
                 </div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={styles.subLabel}>Time Sig</div>
-                <div style={styles.buttonGroup}>
+                <div className="music-glossary-sub-label">Time Sig</div>
+                <div className="music-glossary-button-group">
                   {['3/4', '4/4', '6/8'].map(ts => (
                     <button key={ts} onClick={() => onSelect(ts, 'Time Signature')} 
-                      style={{...styles.chip, ...(activeValues.timeSig === ts ? styles.activeChip : {})}}>
+                      className={`music-glossary-chip ${activeValues.timeSig === ts ? 'active' : ''}`}>
                       {ts}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
-
+            {/* Dynamic range inputs */}
             <div style={{ display: 'flex', gap: '12px' }}>
               <div style={{ flex: 1 }}>
-                <div style={styles.subLabel}>Temp: {temp}</div>
-                <input type="range" min="0.1" max="2.0" step="0.1" value={temp} onChange={(e) => setTemp(parseFloat(e.target.value))} style={styles.range} />
+                <div className="music-glossary-sub-label">Temp: {temp}</div>
+                <input type="range" min="0.1" max="2.0" step="0.1" value={temp} onChange={(e) => setTemp(parseFloat(e.target.value))} className="music-glossary-range" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={styles.subLabel}>BPM: {bpm}</div>
-                <input type="range" min="40" max="240" step="1" value={bpm} onChange={(e) => setBpm(parseInt(e.target.value))} style={styles.range} />
+                <div className="music-glossary-sub-label">BPM: {bpm}</div>
+                <input type="range" min="40" max="240" step="1" value={bpm} onChange={(e) => setBpm(parseInt(e.target.value))} className="music-glossary-range" />
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <div style={{ flex: 1 }}>
-                <div style={styles.subLabel}>Length</div>
-                <select value={length} onChange={(e) => setLength(parseInt(e.target.value))} style={styles.select}>
+                <div className="music-glossary-sub-label">Length</div>
+                <select value={length} onChange={(e) => setLength(parseInt(e.target.value))} className="music-glossary-select">
                   <option value="4">4 Bars</option>
                   <option value="8">8 Bars</option>
                   <option value="16">16 Bars</option>
@@ -144,11 +129,12 @@ const MusicFunctions = ({
               </div>
             </div>
 
+            {/* Dynamic button styles */}
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-              <button onClick={handleUpload} disabled={loading} style={loading ? styles.btnDisabled : styles.actionBtn}>Remix</button>
-              <button onClick={handleGenerate} disabled={loading} style={loading ? styles.btnDisabled : {...styles.actionBtn, backgroundColor: '#6366f1', color: 'white'}}>AI Generate</button>
+              <button onClick={handleUpload} disabled={loading} className={loading ? 'music-glossary-btn-disabled' : 'music-glossary-action-btn'}>Remix</button>
+              <button onClick={handleGenerate} disabled={loading} className={loading ? 'music-glossary-btn-disabled' : 'music-glossary-action-btn'} style={loading ? {} : { backgroundColor: '#6366f1', color: 'white' }}>AI Generate</button>
             </div>
-            {loading && <div style={styles.progressBg}><div style={{...styles.progressFill, width: `${uploadProgress}%`}} /></div>}
+            {loading && <div className="music-glossary-progress-bg"><div className="music-glossary-progress-fill" style={{ width: `${uploadProgress}%` }} /></div>}
           </div>
         </div>
 
@@ -169,20 +155,17 @@ const MusicFunctions = ({
         )} */}
 
         {modules.map((mod) => (
-          <div key={mod.id} style={styles.module}>
-            <div style={styles.moduleLabel}>{mod.title}</div>
-            <div style={styles.moduleContent}>
+          <div key={mod.id} className="music-glossary-module">
+            <div className="music-glossary-module-label">{mod.title}</div>
+            <div className="music-glossary-module-content">
               {mod.subsections.map((sub) => (
-                <div key={sub.label} style={styles.subSection}>
-                  <div style={styles.subLabel}>{sub.label}</div>
-                  <div style={styles.buttonGroup}>
+                <div key={sub.label} className="music-glossary-sub-section">
+                  <div className="music-glossary-sub-label">{sub.label}</div>
+                  <div className="music-glossary-button-group">
                     {sub.items.map((item) => (
                       <button
                         key={item}
-                        style={{
-                          ...styles.chip,
-                          ...(isItemActive(item, sub.label, sub.category) ? styles.activeChip : {})
-                        }}
+                        className={`music-glossary-chip ${isItemActive(item, sub.label, sub.category) ? 'active' : ''}`}
                         onClick={() => onSelect && onSelect(item, sub.category)}
                       >
                         {item}
@@ -197,70 +180,6 @@ const MusicFunctions = ({
       </div>
     </div>
   );
-};
-
-const styles = {
-  container: {
-    backgroundColor: '#121214',
-    borderRadius: '12px',
-    border: '1px solid #27272a',
-    overflow: 'hidden',
-    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
-  },
-  rackHeader: {
-    padding: '16px 24px',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderBottom: '1px solid #27272a',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  title: { fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#ffffff' },
-  status: { fontSize: '9px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' },
-  rackBody: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' },
-  module: {
-    padding: '12px',
-    backgroundColor: '#18181b',
-    borderRadius: '8px',
-    border: '1px solid #27272a'
-  },
-  moduleLabel: { fontSize: '9px', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '16px' },
-  moduleContent: { display: 'flex', flexDirection: 'column', gap: '16px' },
-  subSection: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  subLabel: { fontSize: '9px', fontWeight: '800', color: '#71717a', textTransform: 'uppercase' },
-  buttonGroup: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
-  chip: {
-    padding: '5px 10px',
-    backgroundColor: '#09090b',
-    borderRadius: '4px',
-    color: '#a1a1aa',
-    fontSize: '11px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.2px',
-    border: '1px solid #27272a',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  activeChip: {
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    borderColor: '#818cf8',
-    boxShadow: '0 0 12px rgba(99, 102, 241, 0.4)',
-    transform: 'translateY(-1px)'
-  },
-  monitorGrid: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  monitorItem: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  miniCanvasScroll: { width: '100%', overflowX: 'auto', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: '4px', height: '40px' },
-  fileInput: { fontSize: '9px', color: '#64748b', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '4px', width: '100%' },
-  range: { width: '100%', accentColor: '#6366f1', height: '4px', cursor: 'pointer' },
-  select: { width: '100%', backgroundColor: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: '4px', fontSize: '10px', padding: '4px' },
-  actionBtn: { flex: 1, padding: '10px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', borderRadius: '4px', cursor: 'pointer', border: '1px solid #111418' },
-  btnDisabled: { flex: 1, padding: '10px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', borderRadius: '4px', opacity: 0.5, cursor: 'not-allowed', border: '1px solid #111418' },
-  progressFill: { height: '100%', backgroundColor: '#6366f1', transition: 'width 0.3s ease' }
 };
 
 export default MusicFunctions;

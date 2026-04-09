@@ -1,15 +1,28 @@
 import React from 'react';
+import './EditorHeader.css';
 
 const EditorHeader = ({ 
   isPlaying, onPlay, onStop, 
   bpm, setBpm, 
   timeSig, handleDownload,
   instrument, updateInstrument,
-  onTransform
+  onTransform,
+  style, complexity, structure
 }) => {
   return (
     <div className="editor-header">
       <div className="daw-tab">Editor / <span style={{color: '#64748b'}}>Pattern_01</span></div>
+
+      {/* <div className="header-info-group">
+        <div className="header-info-item">
+          <span className="header-info-label">Personality</span>
+          <span className="header-info-value">{style} / {complexity}</span>
+        </div>
+        <div className="header-info-item">
+          <span className="header-info-label">Context</span>
+          <span className="header-info-value">{structure}</span>
+        </div>
+      </div> */}
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div className="transport-group">
@@ -20,8 +33,6 @@ const EditorHeader = ({
               backgroundColor: isPlaying ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.1)',
               color: isPlaying ? '#ef4444' : '#10b981',
               borderColor: isPlaying ? '#ef4444' : '#10b981',
-              padding: '4px 12px',
-              fontSize: '11px'
             }}
           >
             {isPlaying ? '■ STOP' : '▶ START'}
@@ -35,7 +46,6 @@ const EditorHeader = ({
             className="transport-input" 
             value={bpm} 
             onChange={(e) => setBpm(parseInt(e.target.value))} 
-            style={{ width: '50px' }}
           />
         </div>
 
@@ -50,9 +60,9 @@ const EditorHeader = ({
           </select>
         </div>
 
-        <div className="transport-divider" style={{ width: '1px', height: '20px', background: '#334155' }} />
+        <div className="transport-divider" />
 
-        <div className="transform-group" style={{ display: 'flex', gap: '4px' }}>
+        <div className="transform-group">
           <button className="btn-mini" onClick={() => onTransform('Transpose +', 'Melodic Transform')}>T+</button>
           <button className="btn-mini" onClick={() => onTransform('Transpose -', 'Melodic Transform')}>T-</button>
           <button className="btn-mini" onClick={() => onTransform('Reverse', 'Melodic Transform')}>REV</button>
@@ -60,7 +70,7 @@ const EditorHeader = ({
           <button className="btn-mini" onClick={() => onTransform('Sprinkle', 'Melodic Transform')}>✨</button>
         </div>
 
-        <button onClick={handleDownload} className="export-btn" style={{ fontSize: '10px' }}>
+        <button onClick={handleDownload} className="export-btn">
           MIDI
         </button>
       </div>

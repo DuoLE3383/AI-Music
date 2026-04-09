@@ -16,6 +16,14 @@ STYLE_MAP = {
     "cover": -0.1
 }
 
+# Harmonic triads based on scale degrees (0-indexed)
+# e.g., Degree 0 (I) uses degrees 0, 2, 4 of the scale
+CHORD_TEMPLATES = {
+    "triad": [0, 2, 4],
+    "seventh": [0, 2, 4, 6],
+    "power": [0, 4]
+}
+
 SCALE_LOGIC = {
     "major": {"intervals": [0, 2, 4, 5, 7, 9, 11]},
     "minor": {"intervals": [0, 2, 3, 5, 7, 8, 10]}
@@ -41,6 +49,14 @@ ROOT_MAP = {
 STRUCTURE_MAP = {
     "intro": 8, "verse": 16, "chorus": 16,
     "bridge": 8, "outro": 8, "hook": 4
+}
+
+# Rhythmic weights for Complexity: [Quarter, Eighth, Sixteenth]
+RHYTHM_WEIGHTS = {
+    "stable": [0.8, 0.2, 0.0],   # Mostly "Walk"
+    "balanced": [0.4, 0.5, 0.1], # Mix of "Walk" and "Run-ning"
+    "creative": [0.2, 0.5, 0.3], # Lots of "Run-ning" and "Tiri-tiri"
+    "chaotic": [0.1, 0.3, 0.6]   # High speed "Tiri-tiri" patterns
 }
 
 COMPLEXITY_MAP = {
@@ -75,23 +91,49 @@ class MusicEngine:
         root_offset = ROOT_MAP.get(root, 0)
         allowed_chromas = [(root_offset + i) % 12 for i in logic["intervals"]]
         
-        chroma = pitch % 12
-        if chroma in allowed_chromas:
+        # Check if the pitch is already in the scale
+        if (pitch % 12) in allowed_chromas:
             return pitch
-        nearest_chroma = min(allowed_chromas, key=lambda x: abs(x - chroma))
-        return (pitch // 12) * 12 + nearest_chroma
+
+        # Generate candidate pitches in the current, lower, and upper octaves
+        # We consider a wider range to ensure finding the truly nearest pitch
+        # e.g., if pitch is 60 (C4), and scale is D major, closest might be B3 (59) or D4 (62)
+        # So, we need to check at least +/- 1 octave from the current pitch's octave.
+        
+        # Determine the base octave for the current pitch
+        current_octave_midi_base = (pitch // 12) * 12
+
+        candidate_pitches = []
+        # Check pitches in the octave below, current octave, and octave above
+        for octave_offset in [-12, 0, 12]:
+            for chroma_val in allowed_chromas:
+                candidate_pitch = current_octave_midi_base + octave_offset + chroma_val
+                if 0 <= candidate_pitch <= 127: # Ensure within MIDI range
+                    candidate_pitches.append(candidate_pitch)
+        
+        if not candidate_pitches:
+            # This case should ideally not be reached if allowed_chromas is not empty
+            # and MIDI range is valid. Return original pitch as a fallback.
+            return pitch 
+
+        # Find the closest pitch from the candidates.
+        # If multiple pitches are equidistant, choose the higher one.
+        nearest_pitch = min(candidate_pitches, key=lambda p: (abs(p - pitch), -p))
+        
+        return nearest_pitch
 
     @staticmethod
     def apply_transformations(pm: pretty_midi.PrettyMIDI, req: GenerateRequest):
         for instrument in pm.instruments:
-            if instrument.is_drum: continue # FIX: Do not transpose or scale-force drums
+            if instrument.is_drum: continue # Do not transpose or scale-force drums
 
+            # Apply transposition first, then force to scale
             if req.transpose != 0:
                 for note in instrument.notes:
-                    # Changed from *12 (octave) to semitones for reasonable behavior
                     new_pitch = note.pitch + req.transpose
                     note.pitch = MusicEngine.force_to_scale(max(0, min(127, new_pitch)), req.mode, req.root)
 
+            # Ensure all notes are within the specified scale (handles non-transposed notes too)
             for note in instrument.notes:
                 note.pitch = MusicEngine.force_to_scale(note.pitch, req.mode, req.root)
 
@@ -122,26 +164,80 @@ class MusicEngine:
             
         pm = pretty_midi.PrettyMIDI(initial_tempo=req.bpm)
         
+        # Voice 1: Melody
         program = req.instrument_id if req.instrument_id > 0 else INSTRUMENT_MAP.get(req.instrument, 0)
         is_drum = req.instrument == "drums" or program >= 128
-        # Standard MIDI: Drums use program 0 on Channel 10, PrettyMIDI handles this via is_drum
         inst = pretty_midi.Instrument(program=0 if is_drum else min(program, 127), is_drum=is_drum)
         
+        # Voice 3: Bass Line
+        bass_program = 32 if not is_drum else 0
+        bass_inst = pretty_midi.Instrument(program=bass_program, is_drum=is_drum)
+
         logic = SCALE_LOGIC.get(req.mode, SCALE_LOGIC["major"])
         scale_intervals = logic["intervals"]
         root_offset = ROOT_MAP.get(req.root, 0)
-        note_duration = (60.0 / max(40, req.bpm)) * 2.0
-
+        
+        # 16th note duration
+        sixteenth = 60.0 / max(40, req.bpm) / 4.0
+        
+        # Define a functional progression: I - vi - IV - V (Classic Pop)
+        progression_degrees = [0, 5, 3, 4] 
         current_time = 0
-        for _ in range(num_bars * 2):
-            degree = np.random.randint(0, len(scale_intervals))
-            octave_offset = np.random.randint(0, 2) * 12
-            pitch = 48 + root_offset + octave_offset + scale_intervals[degree]
+        
+        # Get rhythmic weights based on complexity
+        r_weights = RHYTHM_WEIGHTS.get(req.complexity, RHYTHM_WEIGHTS["balanced"])
+
+        for bar in range(num_bars):
+            # Determine the chord for this bar based on progression
+            chord_root_degree = progression_degrees[bar % len(progression_degrees)]
             
-            inst.notes.append(pretty_midi.Note(velocity=100, pitch=pitch, start=current_time, end=current_time + note_duration))
-            current_time += note_duration
+            # Duration for one bar (assuming 4/4)
+            bar_duration = sixteenth * 16
+            
+            if not is_drum:
+                # BASS (The Pulse): Establish the "1 - 2 - 3 - 4" heartbeat
+                bass_pitch = 36 + root_offset + scale_intervals[chord_root_degree]
+                for beat in range(4):
+                    b_start = current_time + (beat * sixteenth * 4)
+                    b_end = b_start + (sixteenth * 3.8) # Slight gap for definition
+                    bass_inst.notes.append(pretty_midi.Note(velocity=90, pitch=bass_pitch, start=b_start, end=b_end))
+
+            # 3. MELODY (The Pattern): "Walk and Run" logic
+            # Instead of fixed 8th notes, we fill the 16 slots of the bar dynamically
+            filled_sixteenths = 0
+            while filled_sixteenths < 16:
+                # Pick a rhythm: 4 (Quarter), 2 (Eighth), or 1 (Sixteenth)
+                possible_durs = [4, 2, 1]
+                # Filter out durations that would exceed the bar length
+                valid_durs = [d for d in possible_durs if (filled_sixteenths + d) <= 16]
+                if not valid_durs: break
+                
+                # Randomly select duration based on weights (adjusted for valid options)
+                duration_choice = np.random.choice(valid_durs, p=[r_weights[possible_durs.index(d)] for d in valid_durs] / np.sum([r_weights[possible_durs.index(d)] for d in valid_durs]))
+                
+                note_start = current_time + (filled_sixteenths * sixteenth)
+                note_dur = duration_choice * sixteenth
+                
+                # Play logic: Quarter notes are almost always played, 16ths are flourishes
+                play_prob = 0.9 if duration_choice == 4 else 0.7
+                if np.random.random() < play_prob:
+                    # Resolve to chord tones on main beats (Pulse)
+                    if filled_sixteenths % 4 == 0:
+                        degree = (chord_root_degree + np.random.choice(CHORD_TEMPLATES["triad"])) % len(scale_intervals)
+                    else:
+                        degree = np.random.randint(0, len(scale_intervals))
+                    
+                    m_pitch = 72 + root_offset + scale_intervals[degree]
+                    inst.notes.append(pretty_midi.Note(velocity=100, pitch=m_pitch, start=note_start, end=note_start + note_dur))
+                
+                filled_sixteenths += duration_choice
+            
+            current_time += bar_duration
         
         pm.instruments.append(inst)
+        if not is_drum:
+            pm.instruments.append(bass_inst)
+            
         pm = MusicEngine.apply_transformations(pm, req)
 
         midi_data = io.BytesIO()

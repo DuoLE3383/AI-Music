@@ -1,4 +1,5 @@
 import React from 'react';
+import './TransportBar.css';
 
 const TransportBar = ({ isPlaying, togglePlay, bpm, setBpm, timeSig, handleDownload }) => {
   return (
@@ -22,7 +23,7 @@ const TransportBar = ({ isPlaying, togglePlay, bpm, setBpm, timeSig, handleDownl
       <div className="transport-group">
         <div className="transport-item">
           <span className="transport-label">BPM</span>
-          <input 
+          <input
             type="number" 
             className="transport-input" 
             value={bpm} 

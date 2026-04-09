@@ -1,0 +1,187 @@
+.music-glossary-container {
+  background-color: #121214;
+  border-radius: 12px;
+  border: 1px solid #27272a;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+.music-glossary-rack-header {
+  padding: 16px 24px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #27272a;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.music-glossary-title {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #ffffff;
+}
+
+.music-glossary-status {
+  font-size: 9px;
+  font-weight: 800;
+  color: #10b981;
+  text-transform: uppercase;
+}
+
+.music-glossary-rack-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.music-glossary-module {
+  padding: 12px;
+  background-color: #18181b;
+  border-radius: 8px;
+  border: 1px solid #27272a;
+}
+
+.music-glossary-module-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 16px;
+}
+
+.music-glossary-module-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.music-glossary-sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.music-glossary-sub-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: #71717a;
+  text-transform: uppercase;
+}
+
+.music-glossary-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.music-glossary-chip {
+  padding: 5px 10px;
+  background-color: #09090b;
+  border-radius: 4px;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  border: 1px solid #27272a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.music-glossary-chip.active {
+  background-color: #6366f1;
+  color: #ffffff;
+  border-color: #818cf8;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.music-glossary-monitor-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.music-glossary-monitor-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.music-glossary-mini-canvas-scroll {
+  width: 100%;
+  overflow-x: auto;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  height: 40px;
+}
+
+.music-glossary-file-input {
+  font-size: 9px;
+  color: #64748b;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.music-glossary-range {
+  width: 100%;
+  accent-color: #6366f1;
+  height: 4px;
+  cursor: pointer;
+}
+
+.music-glossary-select {
+  width: 100%;
+  background-color: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 4px;
+}
+
+.music-glossary-action-btn {
+  flex: 1;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #111418;
+}
+
+.music-glossary-btn-disabled {
+  flex: 1;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  border-radius: 4px;
+  opacity: 0.5;
+  cursor: not-allowed;
+  border: 1px solid #111418;
+}
+
+.music-glossary-progress-bg {
+  height: 4px;
+  background-color: rgba(99, 102, 241, 0.2);
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.music-glossary-progress-fill {
+  height: 100%;
+  background-color: #6366f1;
+  transition: width 0.3s ease;
+}

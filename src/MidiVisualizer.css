@@ -1,0 +1,29 @@
+.visualizer-container {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.visualizer-section {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.visualizer-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #64748b;
+  margin-bottom: 8px;
+  font-weight: 800;
+}
+
+.canvas-wrapper {
+  width: 100%;
+  height: 100px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}

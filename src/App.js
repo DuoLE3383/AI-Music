@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as mm from '@magenta/music';
-import PianoRoll from './PianoRoll';
 import MusicFunctions from './MusicGlossary';
-import TransportBar from './TransportBar';
+import PianoEditor from './components/editor/PianoEditor';
 import { generateMusic, remixMusic } from './services/api';
 import './App.css';
 
@@ -61,43 +60,59 @@ const App = () => {
     if (remixSequence && !loading) {
       handleGenerate();
     }
-    // Added missing dependencies to make the rack controls real-time
-  }, [style, mode, root, timeSig, bpm, complexity, structure, instrumentName, instrument]);
+    // Removed bpm to prevent regeneration when only changing tempo
+  }, [style, mode, root, timeSig, complexity, structure]);
 
-  const stopPlayer = () => {
+  const stopPlayer = (shouldResetTime = true) => {
     if (playerRef.current?.isPlaying()) playerRef.current.stop();
     setIsPlaying(false);
-    setCurrentTime(0);
+    if (shouldResetTime) setCurrentTime(0);
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   };
 
-  const togglePlay = () => {
+  const togglePlay = (skipLoad = false) => {
     if (isPlaying) {
       stopPlayer();
     } else if (remixSequence) {
-      playerRef.current.resumeContext();
-      setIsPlaying(true);
-
+      if (!skipLoad) setStatus('Loading sounds...');
       const offset = currentTime;
-      const startTimestamp = Date.now();
-      const updateProgress = () => {
-        if (playerRef.current?.isPlaying()) {
-          const elapsed = (Date.now() - startTimestamp) / 1000;
-          const nextTime = offset + elapsed;
-          setCurrentTime(nextTime);
-          if (nextTime < remixSequence.totalTime) {
-          animationFrameRef.current = requestAnimationFrame(updateProgress);
+      
+      // Skip loading if samples are already ready (e.g. during seeking)
+      const loadPromise = skipLoad ? Promise.resolve() : playerRef.current.loadSamples(remixSequence);
+
+      loadPromise.then(() => {
+        playerRef.current.resumeContext();
+        setIsPlaying(true);
+        if (!skipLoad) setStatus('Playing');
+
+        const startTimestamp = Date.now();
+        const updateProgress = () => {
+          if (playerRef.current?.isPlaying()) {
+            const elapsed = (Date.now() - startTimestamp) / 1000;
+            const nextTime = offset + elapsed;
+            setCurrentTime(nextTime);
+            if (nextTime < remixSequence.totalTime) {
+              animationFrameRef.current = requestAnimationFrame(updateProgress);
+            }
+          } else {
+            cancelAnimationFrame(animationFrameRef.current);
           }
-        }
-      };
+        };
 
-      playerRef.current.start(remixSequence, undefined, offset).then(() => {
+        playerRef.current.start(remixSequence, undefined, offset).then(() => {
+          setIsPlaying(currentlyPlaying => {
+            if (currentlyPlaying) setCurrentTime(0);
+            return false;
+          });
+          cancelAnimationFrame(animationFrameRef.current);
+        });
+
+        updateProgress();
+      }).catch(err => {
+        console.error("Magenta Playback Error:", err);
+        setStatus("Playback failed: Missing samples or network error");
         setIsPlaying(false);
-        if (playerRef.current && !playerRef.current.isPlaying()) setCurrentTime(0);
-        cancelAnimationFrame(animationFrameRef.current);
       });
-
-      updateProgress();
     }
   };
 
@@ -363,11 +378,14 @@ const App = () => {
     if (remixSequence) {
       setRemixSequence(prev => ({
         ...prev,
-        notes: prev.notes.map(n => ({
-          ...n,
-          program: id,
-          isDrum: id === 118 || id === 128
-        }))
+        notes: prev.notes.map(n => {
+          // Only update lead voice (program 0 or current instrument) 
+          // Keep Bass (32) and other voices intact to prevent fetch errors
+          if (n.program !== 32) {
+            return { ...n, program: id, isDrum: id === 118 || id === 128 };
+          }
+          return n;
+        })
       }));
     }
   };
@@ -376,6 +394,7 @@ const App = () => {
     setRemixSequence(prev => ({
       notes: [...(prev?.notes || []), { ...note, program: instrument, isDrum: instrument === 118 || instrument === 128 }],
       tempos: prev?.tempos || [{ qpm: bpm }],
+      ticksPerQuarter: prev?.ticksPerQuarter || 220,
       // Ensure totalTime expands if we paint beyond the current end
       totalTime: Math.max(prev?.totalTime || 0, note.endTime)
     }));
@@ -417,22 +436,36 @@ const App = () => {
       return {
         notes: newNotes,
         totalTime: startTime,
-        tempos: [{ qpm: bpm }]
+        tempos: [{ qpm: bpm }],
+        ticksPerQuarter: 220,
+        timeSignatures: [{ time: 0, numerator: 4, denominator: 4 }]
       };
     });
     setStatus('Added CDEFGAB sequence');
   };
 
   const handleSeek = (time) => {
-    if (isPlaying) stopPlayer();
+    const wasPlaying = isPlaying;
+    if (isPlaying) stopPlayer(false); 
     setCurrentTime(time);
+    if (wasPlaying && remixSequence) togglePlay(true);
   };
 
   const handleDownload = () => {
     if (!remixSequence) return;
     try {
-      // Convert the current live NoteSequence back to MIDI bytes
-      const midiBytes = mm.sequenceProtoToMidi(remixSequence);
+      // MIDI export requires metadata and must be unquantized.
+      // We clone to avoid mutating the state used for the visualizers.
+      let sequenceToExport = JSON.parse(JSON.stringify(remixSequence));
+      
+      if (sequenceToExport.quantizationInfo) {
+        sequenceToExport = mm.sequences.unquantizeSequence(sequenceToExport);
+      }
+      
+      // Ensure required properties for conversion
+      if (!sequenceToExport.ticksPerQuarter) sequenceToExport.ticksPerQuarter = 220;
+
+      const midiBytes = mm.sequenceProtoToMidi(sequenceToExport);
       const blob = new Blob([midiBytes], { type: 'audio/midi' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -453,11 +486,6 @@ const App = () => {
           <div className="logo">REASONABLE<span>R</span></div>
           <div className="status-badge">{status || 'System Ready'}</div>
         </div>
-        <TransportBar 
-          isPlaying={isPlaying} togglePlay={togglePlay} 
-          bpm={bpm} setBpm={setBpm} timeSig={timeSig} 
-          handleDownload={handleDownload} 
-        />
       </header>
 
       <div className="main-layout">
@@ -487,44 +515,33 @@ const App = () => {
         <main className="workspace">
           {remixSequence ? (
             <div className="editor-card">
-              <div className="editor-header">
-                <div className="daw-tab">Editor / <span style={{color: '#64748b'}}>Pattern_01</span></div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="transport-label">Voice</span>
-                  <select value={instrument} onChange={(e) => updateInstrument(e.target.value)} className="select-small">
-                    <option value="0">Grand Piano</option>
-                    <option value="24">Nylon Gtr</option>
-                    <option value="32">Ac. Bass</option>
-                    <option value="40">Violin</option>
-                    <option value="128">Drum Kit</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <PianoRoll
-                  sequence={{ ...remixSequence, tempos: [{ qpm: bpm }] }}
-                  currentTime={currentTime}
-                  onSeek={handleSeek}
-                  onAddNote={handleNoteAdd}
-                  onRemoveNote={handleNoteRemove} />
-              </div>
-
-              <div className="insights-row">
-                <div className="insight-item">
-                  <div className="insight-label">AI Personality</div>
-                  <div className="insight-value">{style} / {complexity}</div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-label">Context</div>
-                  <div className="insight-value">{structure}</div>
-                </div>
-              </div>
+              <PianoEditor
+                sequence={remixSequence}
+                bpm={bpm}
+                setBpm={setBpm}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                onPlay={togglePlay}
+                onStop={stopPlayer}
+                onSeek={handleSeek}
+                onAddNote={handleNoteAdd}
+                onRemoveNote={handleNoteRemove}
+                // Extended props for the header
+                instrument={instrument}
+                updateInstrument={updateInstrument}
+                timeSig={timeSig}
+                handleDownload={handleDownload}
+                onTransform={handleGlossarySelect}
+                style={style}
+                complexity={complexity}
+                structure={structure}
+              />
             </div>
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px dashed #27272a', borderRadius: '12px' }}>
-              <h2 style={{ color: '#334155', fontSize: '24px', fontWeight: '900', textTransform: 'uppercase' }}>No Data</h2>
-              <p style={{ color: '#64748b', fontSize: '14px' }}>Waiting for generation or remix...</p>
+            <div className="empty-canvas-container">
+              <div className="empty-canvas-icon"></div>
+              <h2 className="empty-canvas-title">Empty Canvas</h2>
+              <p className="empty-canvas-text">Select a style from the sidebar or upload a MIDI file to begin your creative session.</p>
             </div>
           )}
         </main>
