@@ -1,4 +1,4 @@
-import PianoRoll from "../../PianoRoll";
+import PianoRoll from "./PianoRoll";
 import EditorHeader from "./EditorHeader";
 import "./PianoEditor.css";
 

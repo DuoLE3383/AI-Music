@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as mm from '@magenta/music';
-import MusicFunctions from './MusicGlossary';
-import PianoEditor from './components/editor/PianoEditor';
+import Header from './components/Header';
+import Sidebar from './components/sidebar/Sidebar';
+import Workspace from './components/Workspace';
 import { generateMusic, remixMusic } from './services/api';
-import './App.css';
+import './styles/App.css';
 
 const App = () => {
   const [file, setFile] = useState(null);
@@ -54,6 +55,19 @@ const App = () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []);
+
+  // Sync BPM state with the actual NoteSequence tempo for playback
+  useEffect(() => {
+    if (remixSequence && (remixSequence.tempos[0]?.qpm !== bpm)) {
+      setRemixSequence(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tempos: [{ qpm: bpm }]
+        };
+      });
+    }
+  }, [bpm]);
 
   // Real-time update: If style changes, re-generate automatically
   useEffect(() => {
@@ -129,6 +143,7 @@ const App = () => {
         abortControllerRef.current.signal
       );
       const ns = await mm.blobToNoteSequence(res.data);
+      ns.tempos = [{ qpm: bpm }]; // Force consistency with UI state
       setRemixSequence(ns); setStatus('Remix complete!');
     } catch (e) { setStatus(e.name === 'AbortError' ? 'Cancelled' : 'Failed'); }
     finally { setLoading(false); abortControllerRef.current = null; }
@@ -170,6 +185,7 @@ const App = () => {
       }
 
       const ns = await mm.blobToNoteSequence(res.data);
+      ns.tempos = [{ qpm: bpm }]; // Force consistency with UI state
       setRemixSequence(ns); setStatus('Generation complete!');
       setCheckpoints(prev => [{
         id: Date.now(),
@@ -198,12 +214,12 @@ const App = () => {
     finally { setLoading(false); abortControllerRef.current = null; }
   };
 
-  // Auto-train the Personal AI whenever the sequence changes
+  // Auto-train the Personal AI whenever the sequence notes change
   useEffect(() => {
     if (remixSequence && remixSequence.notes.length >= 4 && !loading) {
       handleTrainAI();
     }
-  }, [remixSequence]);
+  }, [remixSequence?.notes]); // Only re-train if notes changed, ignoring tempo updates
 
   const handleTrainAI = async () => {
     if (!remixSequence || remixSequence.notes.length < 4) {
@@ -485,70 +501,51 @@ const App = () => {
 
   return (
     <div className="app-container">
-      <header className="app-header">
-        <div className="logo-section">
-          <div className="logo">REASONABLE<span>R</span></div>
-          <div className="status-badge">{status || 'System Ready'}</div>
-        </div>
-      </header>
+      <Header status={status} />
 
       <div className="main-layout">
-        <aside className="sidebar">
-          <MusicFunctions
-            onSelect={handleGlossarySelect}
-            activeValues={{
-              style, instrumentName, structure, complexity, role,
-              theoryTerm, prodTerm, phrase,
-              transposeVal, isReversed, isHumanized, mode, root, timeSig
-            }}
-            sequence={remixSequence}
-            temp={temp} setTemp={setTemp}
-            bpm={bpm} setBpm={setBpm}
-            timeSig={timeSig} setTimeSig={setTimeSig}
-            length={length} setLength={setLength}
-            instrument={instrument} updateInstrument={updateInstrument}
-            setFile={setFile}
-            handleUpload={handleUpload}
-            handleGenerate={handleGenerate}
-            handleTrain={handleTrainAI}
-            checkpoints={checkpoints}
-            loading={loading}
-            uploadProgress={uploadProgress} />
-        </aside>
+        <Sidebar
+          onSelect={handleGlossarySelect}
+          activeValues={{
+            style, instrumentName, structure, complexity, role,
+            theoryTerm, prodTerm, phrase,
+            transposeVal, isReversed, isHumanized, mode, root, timeSig
+          }}
+          sequence={remixSequence}
+          temp={temp} setTemp={setTemp}
+          bpm={bpm} setBpm={setBpm}
+          timeSig={timeSig} setTimeSig={setTimeSig}
+          length={length} setLength={setLength}
+          instrument={instrument} updateInstrument={updateInstrument}
+          setFile={setFile}
+          handleUpload={handleUpload}
+          handleGenerate={handleGenerate}
+          handleTrain={handleTrainAI}
+          checkpoints={checkpoints}
+          loading={loading}
+          uploadProgress={uploadProgress}
+        />
 
-        <main className="workspace">
-          {remixSequence ? (
-            <div className="editor-card">
-              <PianoEditor
-                sequence={remixSequence}
-                bpm={bpm}
-                setBpm={setBpm}
-                currentTime={currentTime}
-                isPlaying={isPlaying}
-                onPlay={togglePlay}
-                onStop={stopPlayer}
-                onSeek={handleSeek}
-                onAddNote={handleNoteAdd}
-                onRemoveNote={handleNoteRemove}
-                // Extended props for the header
-                instrument={instrument}
-                updateInstrument={updateInstrument}
-                timeSig={timeSig}
-                handleDownload={handleDownload}
-                onTransform={handleGlossarySelect}
-                style={style}
-                complexity={complexity}
-                structure={structure}
-              />
-            </div>
-          ) : (
-            <div className="empty-canvas-container">
-              <div className="empty-canvas-icon"></div>
-              <h2 className="empty-canvas-title">Empty Canvas</h2>
-              <p className="empty-canvas-text">Select a style from the sidebar or upload a MIDI file to begin your creative session.</p>
-            </div>
-          )}
-        </main>
+        <Workspace
+          remixSequence={remixSequence}
+          bpm={bpm}
+          setBpm={setBpm}
+          currentTime={currentTime}
+          isPlaying={isPlaying}
+          onPlay={togglePlay}
+          onStop={stopPlayer}
+          onSeek={handleSeek}
+          onAddNote={handleNoteAdd}
+          onRemoveNote={handleNoteRemove}
+          instrument={instrument}
+          updateInstrument={updateInstrument}
+          timeSig={timeSig}
+          handleDownload={handleDownload}
+          onTransform={handleGlossarySelect}
+          style={style}
+          complexity={complexity}
+          structure={structure}
+        />
       </div>
     </div>
   );
