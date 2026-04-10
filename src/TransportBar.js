@@ -22,7 +22,7 @@ const TransportBar = ({ isPlaying, togglePlay, bpm, setBpm, timeSig, handleDownl
 
       <div className="transport-group">
         <div className="transport-item">
-          <span className="transport-label">BPM</span>
+          <span className="transport-label">Tempo</span>
           <input
             type="number" 
             className="transport-input" 

@@ -40,7 +40,7 @@ const EditorHeader = ({
         </div>
 
         <div className="transport-item">
-          <span className="transport-label">BPM</span>
+          <span className="transport-label">Tempo</span>
           <input 
             type="number" 
             className="transport-input" 

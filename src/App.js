@@ -70,12 +70,12 @@ const App = () => {
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   };
 
-  const togglePlay = (skipLoad = false) => {
-    if (isPlaying) {
+  const togglePlay = (skipLoad = false, forceStart = false, offsetOverride = null) => {
+    if (isPlaying && !forceStart) {
       stopPlayer();
     } else if (remixSequence) {
       if (!skipLoad) setStatus('Loading sounds...');
-      const offset = currentTime;
+      const offset = offsetOverride !== null ? offsetOverride : currentTime;
       
       // Skip loading if samples are already ready (e.g. during seeking)
       const loadPromise = skipLoad ? Promise.resolve() : playerRef.current.loadSamples(remixSequence);
@@ -446,9 +446,13 @@ const App = () => {
 
   const handleSeek = (time) => {
     const wasPlaying = isPlaying;
-    if (isPlaying) stopPlayer(false); 
+    // Kill current playback processes immediately
+    if (playerRef.current) playerRef.current.stop();
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    
     setCurrentTime(time);
-    if (wasPlaying && remixSequence) togglePlay(true);
+    // Resume immediately from the new position if we were already playing
+    if (wasPlaying && remixSequence) togglePlay(true, true, time);
   };
 
   const handleDownload = () => {

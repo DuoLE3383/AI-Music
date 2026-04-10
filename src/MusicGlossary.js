@@ -30,7 +30,7 @@ const MusicFunctions = ({
       id: 'personality',
       title: "AI Personality",
       subsections: [
-        { label: "Style Preset", items: ["Pop", "Rock", "Jazz", "Classical", "Hip-hop", "EDM"], category: "Style Presets" },
+        { label: "Style Preset", items: ["Pop", "Rock", "Jazz", "Classical", "Hip-hop", "EDM", "Lo-fi", "Synthwave", "Blues", "Ambient", "Techno", "Trap"], category: "Style Presets" },
         { label: "Structure", items: ["Intro", "Verse", "Chorus", "Bridge", "Outro", "Hook"], category: "Song Structure" },
         { label: "Complexity", items: ["Stable", "Balanced", "Creative", "Chaotic"], category: "AI Complexity" }
       ]

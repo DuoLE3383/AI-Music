@@ -4,7 +4,7 @@ import * as mm from '@magenta/music';
 import './PianoRoll.css';
 const PIXELS_PER_BEAT = 40; 
 const PITCH_HEIGHT = 400;
-const RHYTHM_HEIGHT = 100;
+// const RHYTHM_HEIGHT = 100;
 const MIN_PITCH = 36;
 const MAX_PITCH = 84;
 const PITCH_RANGE = MAX_PITCH - MIN_PITCH;
@@ -29,7 +29,7 @@ const NATURAL_LABELS = {
 
 const IS_SHARP = [1, 3, 6, 8, 10];
 
-const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) => {
+const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote, timeSig = '4/4' }) => {
   const [isPaintMode, setIsPaintMode] = useState(false);
   const [isSprinkleMode, setIsSprinkleMode] = useState(false);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(PIXELS_PER_BEAT);
@@ -43,6 +43,11 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
   const secondsPerBeat = 60 / qpm;
   const pixelsPerSecond = pixelsPerBeat / secondsPerBeat;
   const totalWidth = (sequence?.totalTime || 0) * pixelsPerSecond;
+
+  // Parse time signature for grid lines (e.g., 4/4, 6/8, 3/4)
+  const [num, den] = timeSig.split('/').map(Number);
+  const pixelsPerStep = pixelsPerBeat * (4 / den);
+  const secondsPerStep = secondsPerBeat * (4 / den);
 
   // Melody Playhead
   const melodyPlayheadX = currentTime * pixelsPerSecond;
@@ -76,9 +81,24 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
     }
 
     // Vertical Beat Lines
-    const totalBeats = Math.ceil((sequence?.totalTime || 0) / secondsPerBeat) + 4;
-    for (let i = 0; i <= totalBeats; i++) { // Dynamic borderLeft
-      lines.push(<div key={`v-${i}`} className="piano-roll-vertical-line" style={{ left: i * pixelsPerBeat, borderLeft: i % 4 === 0 ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.05)' }} />);
+    const totalSteps = Math.ceil((sequence?.totalTime || 0) / secondsPerStep) + (num * 2);
+    for (let i = 0; i <= totalSteps; i++) {
+      const x = i * pixelsPerStep;
+      const isBarLine = i % num === 0;
+      lines.push(
+        <div key={`v-${i}`} className="piano-roll-vertical-line" style={{ 
+          left: x + 50, 
+          borderLeft: isBarLine ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.05)' 
+        }} />
+      );
+      
+      if (isBarLine) {
+        lines.push(
+          <div key={`time-label-${i}`} className="piano-roll-time-label" style={{ left: x + 55 }}>
+            {Math.floor(i / num) + 1}
+          </div>
+        );
+      }
     }
 
     return lines;
@@ -144,7 +164,13 @@ const PianoRoll = ({ sequence, currentTime, onSeek, onAddNote, onRemoveNote }) =
     
     const seekTime = x / pixelsPerSecond;
 
-    if (isPaintMode && sequence) {
+    // Seek if clicking the top ruler (first 25px) or if not in paint mode
+    if (y < 25 || !isPaintMode) {
+      if (onSeek) onSeek(Math.max(0, Math.min(seekTime, sequence?.totalTime || 0)));
+      return;
+    }
+
+    if (sequence) {
       let pitch = MAX_PITCH - Math.floor(y / PITCH_NOTE_HEIGHT);
       pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, pitch));
 
